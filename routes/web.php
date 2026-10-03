@@ -108,60 +108,55 @@ Route::middleware([
             ->name('productos.historial');
     });
 
-    // Repuestos y accesorios son la misma tabla (`repuestos`, columna `tipo`) y
-    // dos pantallas distintas. Los NOMBRES de ruta se conservan tal cual
-    // ('repuestos', 'repuestos.categorias', 'repuestos.historial'): las URLs
-    // cambian de /repuestos a /inventario/repuestos y nada del repo enlaza por
-    // URL, solo por nombre.
+    // Repuestos y accesorios: dos tablas distintas (`repuestos`, `accesorios`)
+    // con el mismo componente de inventario; el tipo lo fija el controlador.
+    // Los literales ('categorias') van ANTES de '{id}/historial', y el
+    // whereNumber() lo blinda igualmente.
     Route::group(['prefix' => 'inventario'], function () {
         Route::group(['prefix' => 'repuestos'], function () {
-            // Antes esta ruta NO tenia can: ninguno, asi que cualquier usuario
-            // autenticado entraba escribiendola. Sin cerrarlo, el permiso
-            // separado de accesorios seria decorativo.
             Route::get('/', [RepuestoController::class, 'index'])
                 ->middleware('can:repuesto.index')
                 ->name('repuestos');
             Route::get('categorias', [RepuestoController::class, 'categorias'])
                 ->middleware('can:repuesto-categoria.index')
                 ->name('repuestos.categorias');
-            // DEBE ir después de 'categorias': {id} capturaría el literal "categorias".
-            // whereNumber() lo blinda igualmente. El middleware can: es necesario porque
-            // el @can del blade solo oculta el botón, no protege la URL.
-            //
-            // El historial es UNO para los dos tipos, por eso se queda bajo
-            // 'repuestos' y con el permiso compartido repuesto.historial.
             Route::get('{id}/historial', [RepuestoController::class, 'historial'])
                 ->whereNumber('id')
                 ->middleware('can:repuesto.historial')
                 ->name('repuestos.historial');
         });
 
-        Route::get('accesorios', [RepuestoController::class, 'accesorios'])
-            ->middleware('can:accesorio.index')
-            ->name('accesorios');
+        Route::group(['prefix' => 'accesorios'], function () {
+            Route::get('/', [RepuestoController::class, 'accesorios'])
+                ->middleware('can:accesorio.index')
+                ->name('accesorios');
+            Route::get('categorias', [RepuestoController::class, 'categoriasAccesorios'])
+                ->middleware('can:accesorio-categoria.index')
+                ->name('accesorios.categorias');
+            Route::get('{id}/historial', [RepuestoController::class, 'historialAccesorio'])
+                ->whereNumber('id')
+                ->middleware('can:accesorio.historial')
+                ->name('accesorios.historial');
+        });
     });
 
+    // Compras: una sola para equipos, repuestos y accesorios. Los literales
+    // ('crear') van antes de '{id}', y whereNumber() lo blinda igualmente.
     Route::group(['prefix' => 'compras'], function () {
         Route::get('/', [CompraController::class, 'index'])
             ->middleware('can:compra.index')
             ->name('compras');
-        Route::get('{id}/productos', [CompraController::class, 'show'])
+        Route::get('crear', [CompraController::class, 'create'])
+            ->middleware('can:compra.create')
+            ->name('compras.crear');
+        Route::get('{id}', [CompraController::class, 'show'])
             ->whereNumber('id')
-            ->middleware('can:compra.productos')
-            ->name('compras.productos');
-
-        Route::group(['prefix' => 'repuestos'], function () {
-            Route::get('/', [CompraController::class, 'repuestoIndex'])
-                ->middleware('can:compra.repuesto.index')
-                ->name('compras.repuestos');
-            Route::get('/crear', [CompraController::class, 'repuestoCreate'])
-                ->middleware('can:compra.repuesto.create')
-                ->name('compras.repuestos.crear');
-            Route::get('{id}/editar', [CompraController::class, 'repuestoEditar'])
-                ->whereNumber('id')
-                ->middleware('can:compra.repuesto.edit')
-                ->name('compras.repuestos.editar');
-        });
+            ->middleware('can:compra.detalle')
+            ->name('compras.detalle');
+        Route::get('{id}/editar', [CompraController::class, 'edit'])
+            ->whereNumber('id')
+            ->middleware('can:compra.edit')
+            ->name('compras.editar');
     });
 
     Route::group(['prefix' => 'ventas'], function () {
@@ -176,7 +171,7 @@ Route::middleware([
             ->name('ventas.crear');
         Route::get('{id}/editar', [VentaController::class, 'editar'])
             ->whereNumber('id')
-            ->middleware('can:venta.create')
+            ->middleware('can:venta.edit')
             ->name('ventas.editar');
 
         Route::get('{id}/detalles', [VentaController::class, 'detalles'])
@@ -184,18 +179,6 @@ Route::middleware([
             ->middleware('can:venta.detalle')
             ->name('ventas.detalles');
 
-        Route::group(['prefix' => 'repuestos'], function () {
-            Route::get('/', [VentaController::class, 'repuestoIndex'])
-                ->middleware('can:venta.repuesto.index')
-                ->name('ventas.repuestos');
-            Route::get('/crear', [VentaController::class, 'repuestoCreate'])
-                ->middleware('can:venta.repuesto.create')
-                ->name('ventas.repuestos.crear');
-            Route::get('{id}/editar', [VentaController::class, 'repuestoEditar'])
-                ->whereNumber('id')
-                ->middleware('can:venta.repuesto.edit')
-                ->name('ventas.repuestos.editar');
-        });
     });
 
     // El @can del blade solo oculta el enlace del menu; sin este middleware
