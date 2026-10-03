@@ -7,11 +7,13 @@ use App\Models\Producto;
 use App\Models\Sucursal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use App\Traits\EligePorCodigoTrait;
 use Livewire\Component;
 use Livewire\Attributes\On;
 
 class ProductoEditSucursalModal extends Component
 {
+    use EligePorCodigoTrait;
 
     /** Lo mismo que en el modal masivo: con uno o dos digitos la lista es ruido. */
     private const MIN_BUSQUEDA = 3;
@@ -54,15 +56,21 @@ class ProductoEditSucursalModal extends Component
             ...ProductoEstado::disponibles(),
             ProductoEstado::Roto->value,
             ProductoEstado::Reparacion->value,
-            ProductoEstado::Transito->value,
+            ProductoEstado::Reserva->value,
         ];
     }
 
     /** El conjunto del que se puede sacar. Un solo sitio para las dos consultas. */
     private function baseQuery(): Builder
     {
-        return Producto::whereIn('estado', $this->estadosTransferibles())
-            ->where('sucursal_id', $this->sucursal1?->id);
+        return Producto::query()->vigentes()
+            ->whereIn('productos.estado', $this->estadosTransferibles())
+            ->where('productos.sucursal_id', $this->sucursal1?->id);
+    }
+
+    private function puedeBuscar(): bool
+    {
+        return $this->sucursal1 !== null;
     }
 
     public function updatedSearchImei($value)
@@ -107,15 +115,19 @@ class ProductoEditSucursalModal extends Component
         $producto = Producto::buscarPorImei($termino)->first();
 
         if (!$producto) {
-            return "Ningún IMEI coincide con \"{$termino}\".";
+            return "Ningún IMEI ni SKU coincide con \"{$termino}\".";
         }
 
         if (in_array($producto->id, $idsExistentes)) {
             return "El IMEI {$producto->imei} ya está en la lista de abajo.";
         }
 
+        if ($producto->estaDadoDeBaja()) {
+            return "El IMEI {$producto->imei} está dado de baja y no se transfiere.";
+        }
+
         if (!in_array($producto->estado, $this->estadosTransferibles())) {
-            return "El IMEI {$producto->imei} está en estado \"{$producto->estado}\" y no se transfiere.";
+            return "El IMEI {$producto->imei} está en estado \"" . ProductoEstado::labelDe($producto->estado) . "\" y no se transfiere.";
         }
 
         $sucursal = $producto->sucursal?->nombre ?? 'ninguna';
@@ -138,6 +150,40 @@ class ProductoEditSucursalModal extends Component
     public function updatedSucursal2Id()
     {
         $this->sucursal2 = Sucursal::find($this->sucursal2_id);
+    }
+
+    /**
+     * Enter en el buscador: lo que manda la pistola (o la camara) al leer el
+     * IMEI o el SKU de un equipo. Con una coincidencia exacta lo agrega y deja
+     * el campo listo para el siguiente; si no, muestra la lista y el motivo.
+     */
+    public function elegirPorCodigo(?string $codigo = null): void
+    {
+        $codigo = trim((string) $codigo);
+        $idsExistentes = collect($this->productos)->pluck('id')->toArray();
+
+        $producto = $codigo === '' || !$this->puedeBuscar() ? null : $this->unicoPorCodigo(
+            $this->baseQuery()
+                ->whereNotIn('id', $idsExistentes)
+                ->where(fn($q) => $q->where('imei', $codigo)->orWhere('sku', $codigo))
+                ->limit(2)
+                ->get(),
+            $codigo,
+            ['imei', 'sku'],
+        );
+
+        if ($producto) {
+            $this->selectProducto($producto->imei);
+
+            return;
+        }
+
+        $this->searchImei = $codigo;
+        $this->updatedSearchImei($codigo);
+
+        if ($codigo !== '' && $this->motivoBusqueda !== '') {
+            toastr()->warning($this->motivoBusqueda);
+        }
     }
 
     public function selectProducto($imei)
@@ -173,6 +219,9 @@ class ProductoEditSucursalModal extends Component
 
     public function store()
     {
+        // El @can de la vista solo esconde el boton.
+        abort_unless(auth()->user()->can('producto.cambiar-sucursal'), 403);
+
         $this->validate([
             'productos' => 'required|array|min:1',
             'sucursal2_id' => 'required|exists:sucursales,id,activa,1',
@@ -183,7 +232,16 @@ class ProductoEditSucursalModal extends Component
 
         DB::transaction(function () {
             foreach ($this->productos as $producto) {
-                $productoFound = Producto::find($producto['id']);
+                // Se revalida dentro de la transaccion: un equipo que se vendio
+                // o se dio de baja mientras el modal estaba abierto no se muda.
+                $productoFound = $this->baseQuery()->whereKey($producto['id'])->lockForUpdate()->first();
+
+                if (!$productoFound) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'productos' => "El IMEI {$producto['imei']} ya no está disponible para transferir en esa sucursal. No se movió ningún equipo.",
+                    ]);
+                }
+
                 $productoFound->update([
                     'sucursal_id' => $this->sucursal2_id
                 ]);

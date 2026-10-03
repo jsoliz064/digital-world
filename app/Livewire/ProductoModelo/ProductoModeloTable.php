@@ -36,7 +36,7 @@ class ProductoModeloTable extends DataTableComponent
             Column::make("Total Productos", "id")
                 ->sortable()
                 ->format(function ($value, $row, Column $column) {
-                    return count($row->productos->whereNotIn('estado', [ProductoEstado::Vendido->value]));
+                    return count($row->productos->whereNotIn('estado', ProductoEstado::vendidos())->whereNull('dado_de_baja_at'));
                 })->searchable(),
         ];
 
@@ -46,7 +46,7 @@ class ProductoModeloTable extends DataTableComponent
                 $columns,
                 Column::make($almacenamiento->value)
                     ->label(function ($row) use ($almacenamiento) {
-                        return count($row->productos->whereNotIn('estado', [ProductoEstado::Vendido->value])->where('almacenamiento', $almacenamiento->value));
+                        return count($row->productos->whereNotIn('estado', ProductoEstado::vendidos())->whereNull('dado_de_baja_at')->where('almacenamiento', $almacenamiento->value));
                     }),
             );
         }

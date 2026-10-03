@@ -63,7 +63,10 @@ class ProductoDashboardTable extends DataTableComponent
 
     public function builder(): Builder
     {
-        return Producto::query()->select('productos.*')->whereNotIn('estado',  [ProductoEstado::Inventario->value, ProductoEstado::Oferta->value, ProductoEstado::Vendido->value, ProductoEstado::Roto->value, ProductoEstado::Transito->value]);
+        // Los equipos que estan "fuera de la vitrina" y hay que seguir: en
+        // reparacion, fuera del local o reservados. Sin los dados de baja.
+        return Producto::query()->select('productos.*')->vigentes()
+            ->whereIn('estado', [ProductoEstado::Reparacion->value, ProductoEstado::Fuera->value, ProductoEstado::Reserva->value]);
     }
 
     #[On('refreshProductoTable')]

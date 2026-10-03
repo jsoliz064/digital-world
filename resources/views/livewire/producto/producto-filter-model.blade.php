@@ -66,19 +66,10 @@
                                             </span>
                                         @endif
 
-                                        @if ($summary['transito'] > 0)
-                                            <span
-                                                class="inline-flex items-center text-[0.6rem] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-900/60 text-gray-800 dark:text-gray-200 font-medium"
-                                                title="transito: {{ $summary['transito'] }}">
-                                                <i class="fa-solid fa-truck text-[0.7rem] mr-1 w-3 text-center"></i>
-                                                <span class="ml-0.5">{{ $summary['transito'] }}</span>
-                                            </span>
-                                        @endif
-
                                         @if ($summary['oferta'] > 0)
                                             <span
                                                 class="inline-flex items-center text-[0.6rem] px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 font-medium"
-                                                title="Productos en Oferta: {{ $summary['oferta'] }}">
+                                                title="De ellos, en oferta: {{ $summary['oferta'] }}">
                                                 <i class="fa-solid fa-tags text-[0.7rem] mr-1 w-3 text-center"></i>
                                                 <span class="ml-0.5">{{ $summary['oferta'] }}</span>
                                             </span>
@@ -98,6 +89,14 @@
                                                 title="Fuera: {{ $summary['fuera'] }}">
                                                 <i class="fa-solid fa-ban text-[0.7rem] mr-1 w-3 text-center"></i>
                                                 <span class="ml-0.5">{{ $summary['fuera'] }}</span>
+                                            </span>
+                                        @endif
+                                        @if ($summary['reserva'] > 0)
+                                            <span
+                                                class="inline-flex items-center text-[0.6rem] px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/40 text-purple-900 dark:text-purple-100 font-medium"
+                                                title="Reserva: {{ $summary['reserva'] }}">
+                                                <i class="fa-solid fa-lock text-[0.7rem] mr-1 w-3 text-center"></i>
+                                                <span class="ml-0.5">{{ $summary['reserva'] }}</span>
                                             </span>
                                         @endif
                                         @if ($summary['roto'] > 0)

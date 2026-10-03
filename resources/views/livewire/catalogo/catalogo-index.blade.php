@@ -544,28 +544,28 @@
                             @role('Vendedor')
                                 <div>
                                     <span class="text-sm font-bold text-brand-600 dark:text-brand-400">
-                                        ${{ number_format($product->precio_vendedor, 0) }}
+                                        Bs {{ number_format($product->precio_vendedor, 0) }}
                                     </span>
                                     @if ($product->precio_vendedor_ant > $product->precio_vendedor)
                                         <span class="block text-xs line-through text-gray-400 dark:text-gray-500">
-                                            ${{ number_format($product->precio_vendedor_ant, 0) }}
+                                            Bs {{ number_format($product->precio_vendedor_ant, 0) }}
                                         </span>
                                     @endif
                                 </div>
                             @else
                                 <div>
                                     <span class="text-sm font-bold text-brand-600 dark:text-brand-400">
-                                        ${{ number_format($product->precio_cliente, 0) }}
+                                        Bs {{ number_format($product->precio_cliente, 0) }}
                                     </span>
                                     @if ($product->precio_cliente_ant > $product->precio_cliente)
                                         <span class="block text-xs line-through text-gray-400 dark:text-gray-500">
-                                            ${{ number_format($product->precio_cliente_ant, 0) }}
+                                            Bs {{ number_format($product->precio_cliente_ant, 0) }}
                                         </span>
                                     @endif
                                 </div>
                             @endrole
 
-                            @if ($product->estado === App\Enums\ProductoEstado::Oferta->value)
+                            @if ($product->tipo_venta === App\Enums\ProductoTipoVenta::Oferta->value)
                                 <span
                                     class="text-[10px] px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 rounded-full border border-purple-200 dark:border-purple-700 font-semibold">
                                     Oferta
@@ -729,24 +729,24 @@
                         @role('Vendedor')
                             <div class="text-right">
                                 <span class="text-2xl font-bold text-brand-600 dark:text-brand-400 whitespace-nowrap">
-                                    ${{ number_format($selectedProduct->precio_vendedor, 2) }}
+                                    Bs {{ number_format($selectedProduct->precio_vendedor, 2) }}
                                 </span>
                                 @if ($selectedProduct->precio_vendedor_ant > $selectedProduct->precio_vendedor)
                                     <span
                                         class="block text-sm line-through text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                                        ${{ number_format($selectedProduct->precio_vendedor_ant, 2) }}
+                                        Bs {{ number_format($selectedProduct->precio_vendedor_ant, 2) }}
                                     </span>
                                 @endif
                             </div>
                         @else
                             <div class="text-right">
                                 <span class="text-2xl font-bold text-brand-600 dark:text-brand-400 whitespace-nowrap">
-                                    ${{ number_format($selectedProduct->precio_cliente, 2) }}
+                                    Bs {{ number_format($selectedProduct->precio_cliente, 2) }}
                                 </span>
                                 @if ($selectedProduct->precio_cliente_ant > $selectedProduct->precio_cliente)
                                     <span
                                         class="block text-sm line-through text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                                        ${{ number_format($selectedProduct->precio_cliente_ant, 2) }}
+                                        Bs {{ number_format($selectedProduct->precio_cliente_ant, 2) }}
                                     </span>
                                 @endif
                             </div>

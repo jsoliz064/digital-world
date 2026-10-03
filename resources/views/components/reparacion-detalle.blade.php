@@ -7,13 +7,7 @@
     habian quedado atras respecto a las pantallas de edicion: faltaban el costo
     de repuestos, el tipo de cambio, los dos totales, pagado y la garantia.
 
-    UNIDADES (comprobado contra los datos, no supuesto):
-      - reparacion.costo y reparacion.costo_repuestos estan en Bs
-      - costo_total_bs = costo + costo_repuestos
-      - costo_total    = costo_total_bs / tipo_cambio  -> USD
-      - en las LINEAS, costo y subtotal_costo estan en USD, y subtotal_costo_bs
-        en Bs. Las dos vistas anteriores las rotulaban "(Bs)", asi que un
-        repuesto de 100 USD se leia como 100 Bs: diez veces menos.
+    UNIDADES: todo en Bs. costo_total = costo (mano de obra) + costo_repuestos.
 
     No se recalcula nada: todo se lee tal como se guardo. Recalcular aqui
     abriria la puerta a que el detalle mostrara una cifra distinta de la
@@ -24,7 +18,6 @@
 @if ($reparacion)
     @php
         $bs = fn($v) => 'Bs. ' . number_format((float) $v, 2);
-        $usd = fn($v) => '$ ' . number_format((float) $v, 2);
 
         // El modelo ProductoReparacion no declara $casts, asi que estos dos
         // vuelven como enteros. Los tres componentes de edicion hacen lo mismo.
@@ -107,9 +100,8 @@
                     <thead>
                         <tr class="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                             <th class="p-2 border border-gray-300 dark:border-gray-600 text-left">Repuesto</th>
-                            <th class="p-2 border border-gray-300 dark:border-gray-600 text-right">Costo (USD)</th>
+                            <th class="p-2 border border-gray-300 dark:border-gray-600 text-right">Costo (Bs)</th>
                             <th class="p-2 border border-gray-300 dark:border-gray-600 text-right">Cant.</th>
-                            <th class="p-2 border border-gray-300 dark:border-gray-600 text-right">Subtotal (USD)</th>
                             <th class="p-2 border border-gray-300 dark:border-gray-600 text-right">Subtotal (Bs)</th>
                         </tr>
                     </thead>
@@ -134,8 +126,6 @@
                                     {{ $linea->cantidad }}</td>
                                 <td class="p-2 border border-gray-300 dark:border-gray-600 text-right">
                                     {{ number_format((float) $linea->subtotal_costo, 2) }}</td>
-                                <td class="p-2 border border-gray-300 dark:border-gray-600 text-right">
-                                    {{ number_format((float) $linea->subtotal_costo_bs, 2) }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -146,34 +136,16 @@
 
     <div class="m-2 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
         <div>
-            <x-label>Costo Reparacion (Bs):</x-label>
+            <x-label>Mano de obra (Bs):</x-label>
             <x-input type="text" value="{{ $bs($reparacion->costo) }}" class="w-full" disabled="true"></x-input>
         </div>
-
         <div>
-            <x-label>Costo Repuestos (Bs):</x-label>
-            <x-input type="text" value="{{ $bs($reparacion->costo_repuestos) }}" class="w-full"
-                disabled="true"></x-input>
+            <x-label>Repuestos (Bs):</x-label>
+            <x-input type="text" value="{{ $bs($reparacion->costo_repuestos) }}" class="w-full" disabled="true"></x-input>
         </div>
-
-        <div>
-            <x-label>Tipo de Cambio:</x-label>
-            <x-input type="text" value="{{ number_format((float) $reparacion->tipo_cambio, 2) }}" class="w-full"
-                disabled="true"></x-input>
-        </div>
-    </div>
-
-    <div class="m-2 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
         <div>
             <x-label>Total (Bs):</x-label>
-            <x-input type="text" value="{{ $bs($reparacion->costo_total_bs) }}" class="w-full"
-                disabled="true"></x-input>
-        </div>
-
-        <div>
-            <x-label>Total (USD):</x-label>
-            <x-input type="text" value="{{ $usd($reparacion->costo_total) }}" class="w-full"
-                disabled="true"></x-input>
+            <x-input type="text" value="{{ $bs($reparacion->costo_total) }}" class="w-full" disabled="true"></x-input>
         </div>
     </div>
 

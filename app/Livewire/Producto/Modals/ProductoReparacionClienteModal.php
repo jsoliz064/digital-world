@@ -8,8 +8,9 @@ use App\Models\Bitacora;
 use App\Models\ProductoModelo;
 use App\Models\ProductoReparacion;
 use App\Models\Tecnicos;
-use App\Models\VentaProducto;
+use App\Models\VentaDetalle;
 use Illuminate\Support\Facades\DB;
+use App\Traits\EligePorCodigoTrait;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use Illuminate\Support\Facades\Auth;
@@ -29,6 +30,10 @@ use App\Models\RepuestoCategoria;
  */
 class ProductoReparacionClienteModal extends Component
 {
+    use EligePorCodigoTrait;
+
+    use \App\Traits\PiezasCobradasTrait;
+
     public $openModal = false;
     public $producto;
     public $detalle;
@@ -109,11 +114,7 @@ class ProductoReparacionClienteModal extends Component
         // La linea de venta se carga en los dos modos: en garantia da el
         // venta_id, y en trabajo externo sirve para mostrar cuando vencio.
         // El ?-> cubre un producto marcado Vendido sin linea de venta.
-        $ventaProducto = $producto->ventaProducto;
-        $this->detalle = $ventaProducto
-            ? VentaProducto::where('producto_id', $producto->id)
-                ->where('venta_id', $ventaProducto->venta_id)->first()
-            : null;
+        $this->detalle = VentaDetalle::where('producto_id', $producto->id)->first();
 
         // Cada modo abre SU reparacion pendiente: un producto puede tener a la
         // vez una garantia y un trabajo externo abiertos.
@@ -146,7 +147,6 @@ class ProductoReparacionClienteModal extends Component
                     'costo' => $reparacionRepuesto->costo,
                     'cantidad' => $reparacionRepuesto->cantidad,
                     'subtotal_costo' => $reparacionRepuesto->subtotal_costo,
-                    'subtotal_costo_bs' => $reparacionRepuesto->subtotal_costo_bs,
                 ];
             }
             $this->repuestosOriginales = $this->repuestos;
@@ -158,9 +158,7 @@ class ProductoReparacionClienteModal extends Component
         return [
             'costo' => 0,
             'costo_repuestos' => 0,
-            'tipo_cambio' => $this->producto->compra->tipo_cambio ?? 1,
             'costo_total' => 0,
-            'costo_total_bs' => 0,
             'cobro_cliente' => 0,
             'fecha_entrega' => '',
             'pagado' => false,
@@ -198,11 +196,13 @@ class ProductoReparacionClienteModal extends Component
     {
         $idsExistentes = collect($this->repuestos)->pluck('repuesto_id')->toArray();
 
-        // Un accesorio no se monta en una reparacion: el filtro es
-        // incondicional y vive en un scope para que el proximo buscador que
-        // alguien escriba no se olvide de el.
-        $this->filteredRepuestos = Repuesto::soloRepuestos()->where(function ($query) use ($search) {
+        // Los accesorios viven en su propia tabla: aqui solo hay piezas. El
+        // SKU y el UPC van EXACTOS, como en el buscador de la venta: es lo que
+        // lee la pistola.
+        $this->filteredRepuestos = Repuesto::query()->where(function ($query) use ($search) {
             $query->where('nombre', 'like', '%' . $search . '%')
+                ->orWhere('sku', $search)
+                ->orWhere('upc', $search)
                 ->orWhere('fabricante', 'like', '%' . $search . '%')
                 ->orWhereHas('modelo', function ($queryModelo) use ($search) {
                     $queryModelo->where('nombre', 'like', '%' . $search . '%');
@@ -220,6 +220,29 @@ class ProductoReparacionClienteModal extends Component
             ->get();
     }
 
+    /**
+     * Enter en el buscador de repuestos (pistola o camara): un SKU/UPC exacto
+     * entre los resultados lo agrega; si no, deja la lista.
+     */
+    public function elegirRepuestoPorCodigo(?string $codigo = null): void
+    {
+        $codigo = trim((string) $codigo);
+        $this->searchRepuesto = $codigo;
+        $this->updatedSearchRepuesto($codigo);
+
+        $repuesto = $this->unicoPorCodigo($this->filteredRepuestos, $codigo, ['sku', 'upc']);
+
+        if ($repuesto) {
+            $this->selectRepuesto($repuesto->id);
+
+            return;
+        }
+
+        if ($codigo !== '' && collect($this->filteredRepuestos)->isEmpty()) {
+            toastr()->warning("Ningún repuesto coincide con «{$codigo}».");
+        }
+    }
+
     public function selectRepuesto($id)
     {
         $repuesto = Repuesto::find($id);
@@ -235,7 +258,6 @@ class ProductoReparacionClienteModal extends Component
             'costo' => $repuesto->costo,
             'cantidad' => 1,
             'subtotal_costo' => $repuesto->costo,
-            'subtotal_costo_bs' => $repuesto->costo * ($this->reparacion['tipo_cambio'] ?? 1),
         ]);
 
         $this->searchRepuesto = '';
@@ -262,9 +284,7 @@ class ProductoReparacionClienteModal extends Component
 
             $subtotalCostoRepuesto = $costo * $cantidad;
             $this->repuestos[$index]['subtotal_costo'] = $subtotalCostoRepuesto;
-            $subtotalCostoRepuestoBs = $subtotalCostoRepuesto * ($this->reparacion['tipo_cambio'] ?? 1);
-            $this->repuestos[$index]['subtotal_costo_bs'] = $subtotalCostoRepuestoBs;
-            $costoTotalRepuestosBs += $subtotalCostoRepuestoBs;
+            $costoTotalRepuestosBs += $subtotalCostoRepuesto;
         }
         $this->reparacion['costo_repuestos'] = $costoTotalRepuestosBs;
         $this->calcularTotalReparacion();
@@ -280,21 +300,14 @@ class ProductoReparacionClienteModal extends Component
         $this->calcularTotalReparacion();
     }
 
-    public function updatedReparacionTipoCambio()
-    {
-        $this->calcularTotalReparacion();
-    }
 
     public function calcularTotalReparacion()
     {
-        $costo = floatval($this->reparacion['costo'] ?? 0);
-        $costo_repuestos = floatval($this->reparacion['costo_repuestos'] ?? 0);
-        $tipo_cambio = floatval($this->reparacion['tipo_cambio'] ?? 0);
-        $costo_usd = $tipo_cambio > 0 ? $costo / $tipo_cambio : 0;
-        $costo_repuestos_usd = $tipo_cambio > 0 ? $costo_repuestos / $tipo_cambio : 0;
-        $costo_total = $costo_usd + $costo_repuestos_usd;
-        $this->reparacion['costo_total'] = $costo_total;
-        $this->reparacion['costo_total_bs'] = $costo + $costo_repuestos;
+        // Todo en Bs: mano de obra del tecnico + repuestos.
+        $this->reparacion['costo_total'] = round(
+            floatval($this->reparacion['costo'] ?? 0) + floatval($this->reparacion['costo_repuestos'] ?? 0),
+            2
+        );
     }
 
     public function eliminarRepuesto($index)
@@ -312,9 +325,7 @@ class ProductoReparacionClienteModal extends Component
         $this->validate([
             'reparacion.costo' => 'required|numeric|min:0',
             'reparacion.costo_repuestos' => 'required|numeric|min:0',
-            'reparacion.tipo_cambio' => 'required|numeric|min:0',
             'reparacion.costo_total' => 'required|numeric|min:0',
-            'reparacion.costo_total_bs' => 'required|numeric|min:0',
             'reparacion.tecnico_id' => 'required',
             'reparacion.fecha_entrega' => 'required',
             'reparacion.garantia_tecnico' => 'required',
@@ -326,16 +337,16 @@ class ProductoReparacionClienteModal extends Component
             'reparacion.cobro_cliente.min' => 'El cobro no puede ser negativo.',
         ]);
 
-        $stock = new \App\Services\StockRepuestoService();
+        $this->exigirPiezasNoCobradas();
+
+        $stock = app(\App\Services\StockService::class);
 
         DB::transaction(function () use ($stock) {
             $dataToSave = [
                 'tecnico_id' => $this->reparacion['tecnico_id'],
                 'costo' => $this->reparacion['costo'],
                 'costo_repuestos' => $this->reparacion['costo_repuestos'],
-                'tipo_cambio' => $this->reparacion['tipo_cambio'],
                 'costo_total' => $this->reparacion['costo_total'],
-                'costo_total_bs' => $this->reparacion['costo_total_bs'],
                 'repuestos_tecnico' => isset($this->reparacion['repuestos_tecnico']) ? $this->reparacion['repuestos_tecnico'] : null,
                 'repuestos_propios' => isset($this->reparacion['repuestos_propios']) ? $this->reparacion['repuestos_propios'] : null,
                 'repuestos_devolver' => isset($this->reparacion['repuestos_devolver']) ? $this->reparacion['repuestos_devolver'] : null,
@@ -377,6 +388,7 @@ class ProductoReparacionClienteModal extends Component
                     // producto: el equipo pudo mudarse al Almacen al terminar
                     // una reparacion anterior.
                     $stock->ingresar(
+                        \App\Enums\ArticuloTipo::Repuesto,
                         $repuestoReparacion->repuesto_id,
                         $repuestoReparacion->sucursal_id,
                         (int) $repuestoReparacion->cantidad,
@@ -406,6 +418,7 @@ class ProductoReparacionClienteModal extends Component
                         // ajustarSalida: en una reparacion, subir la cantidad
                         // RETIRA mas stock. La direccion vive en el nombre.
                         $stock->ajustarSalida(
+                        \App\Enums\ArticuloTipo::Repuesto,
                             $lineaDB->repuesto_id,
                             $lineaDB->sucursal_id,
                             (int) $lineaDB->cantidad,
@@ -416,7 +429,6 @@ class ProductoReparacionClienteModal extends Component
                             'costo' => $repuestoRaparacion['costo'],
                             'cantidad' => $repuestoRaparacion['cantidad'],
                             'subtotal_costo' => $repuestoRaparacion['subtotal_costo'],
-                            'subtotal_costo_bs' => $repuestoRaparacion['subtotal_costo_bs'],
                         ]);
                     }
                 } else {
@@ -429,10 +441,10 @@ class ProductoReparacionClienteModal extends Component
                         'costo' => $repuestoRaparacion['costo'],
                         'cantidad' => $repuestoRaparacion['cantidad'],
                         'subtotal_costo' => $repuestoRaparacion['subtotal_costo'],
-                        'subtotal_costo_bs' => $repuestoRaparacion['subtotal_costo_bs'],
                     ]);
 
                     $stock->retirar(
+                        \App\Enums\ArticuloTipo::Repuesto,
                         $repuesto->id,
                         $this->sucursalRepuestos,
                         (int) $repuestoRaparacion['cantidad'],

@@ -21,23 +21,21 @@
                 <div class="m-2 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
                     <div>
                         <x-label>Nro de Venta:</x-label>
-                        <x-input type="text" value="{{ $producto->ventaProducto?->id }}" class="w-full"
+                        <x-input type="text" value="{{ $producto->ventaDetalle?->venta_id }}" class="w-full"
                             disabled="true"></x-input>
                     </div>
 
                     <div>
                         <x-label>Fecha de Venta:</x-label>
-                        <x-input type="text" value="{{ $producto->ventaProducto?->created_at }}" class="w-full"
+                        <x-input type="text" value="{{ $producto->ventaDetalle?->created_at }}" class="w-full"
                             disabled="true"></x-input>
                     </div>
 
                     <div>
                         <x-label>Vendido a:</x-label>
-                        {{-- `ventaProducto?->cliente` apuntaba a una columna que no
-                             existe en ventas_productos, asi que este campo salia
-                             vacio SIEMPRE. El cliente vive en la cabecera. --}}
+                        {{-- El cliente vive en la cabecera de la venta, no en la linea. --}}
                         <x-input type="text" class="w-full" disabled="true"
-                            value="{{ $producto->ventaProducto?->venta?->nombreCliente() ?? 'Sin cliente' }}"></x-input>
+                            value="{{ $producto->ventaDetalle?->venta?->nombreCliente() ?? 'Sin cliente' }}"></x-input>
                     </div>
                 </div>
 
@@ -128,9 +126,14 @@
                         <x-input-error for="sucursalRepuestos"></x-input-error>
                     </div>
 
-                    <x-input type="text" class="w-full" placeholder="Escriba el nombre del repuesto..."
-                        wire:model.live.debounce.500ms="searchRepuesto" wire:keydown.escape="$set('searchRepuesto', '')"
-                        wire:keydown.tab="$set('searchRepuesto', '')" autocomplete="off"></x-input>
+                    <div class="flex gap-2" data-escaner>
+                        <x-input type="text" class="w-full" placeholder="Escanee o escriba nombre, SKU o código..."
+                            wire:model.live.debounce.500ms="searchRepuesto"
+                            x-on:keydown.enter.prevent="$wire.elegirRepuestoPorCodigo($el.value); $el.value = ''"
+                            wire:keydown.escape="$set('searchRepuesto', '')"
+                            wire:keydown.tab="$set('searchRepuesto', '')" autocomplete="off"></x-input>
+                        <x-boton-escaner />
+                    </div>
 
                     @if (!empty($searchRepuesto))
                         <ul
@@ -162,7 +165,6 @@
                                         <th class="p-2 border border-gray-300 dark:border-gray-600">Costo</th>
                                         <th class="p-2 border border-gray-300 dark:border-gray-600">Cant.</th>
                                         <th class="p-2 border border-gray-300 dark:border-gray-600">Subtotal</th>
-                                        <th class="p-2 border border-gray-300 dark:border-gray-600">Subtotal Bs</th>
                                         <th class="p-2 border border-gray-300 dark:border-gray-600">Acción</th>
                                     </tr>
                                 </thead>
@@ -187,9 +189,6 @@
                                             <td class="p-2 border border-gray-300 dark:border-gray-600 text-right">
                                                 {{ number_format($detalle['subtotal_costo'] ?? 0, 2) }}
                                             </td>
-                                            <td class="p-2 border border-gray-300 dark:border-gray-600 text-right">
-                                                {{ number_format($detalle['subtotal_costo_bs'] ?? 0, 2) }}
-                                            </td>
                                             <td class="p-2 border border-gray-300 dark:border-gray-600 text-center">
                                                 <button wire:click="eliminarRepuesto({{ $index }})"
                                                     class="text-red-600 dark:text-red-500 hover:text-red-800 dark:hover:text-red-400 text-2xl font-extrabold leading-none"
@@ -208,7 +207,7 @@
 
                 <div class="m-2 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
                     <div>
-                        <x-label>Costo Reparacion (Bs):</x-label>
+                        <x-label>Mano de obra del técnico (Bs):</x-label>
                         <x-input type="number" wire:model.lazy="reparacion.costo" class="w-full"
                             onfocus="this.select()"></x-input>
                         <x-input-error for="reparacion.costo"></x-input-error>
@@ -220,26 +219,9 @@
                             onfocus="this.select()"></x-input>
                         <x-input-error for="reparacion.costo_repuestos"></x-input-error>
                     </div>
-
                     <div>
-                        <x-label>Tipo de Cambio:</x-label>
-                        <x-input type="number" wire:model.lazy="reparacion.tipo_cambio" class="w-full"
-                            onfocus="this.select()"></x-input>
-                        <x-input-error for="reparacion.tipo_cambio"></x-input-error>
-                    </div>
-                </div>
-
-                <div class="m-2 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
-                    <div>
-                        <x-label>Total (Bs):</x-label>
-                        <x-input type="number" :value="$reparacion['costo_total_bs']" class="w-full" disabled="true"></x-input>
-                        <x-input-error for="reparacion.costo_total_bs"></x-input-error>
-                    </div>
-
-                    <div>
-                        <x-label>Total (USD):</x-label>
-                        <x-input type="number" :value="$reparacion['costo_total']" class="w-full" disabled="true"></x-input>
-                        <x-input-error for="reparacion.costo_total"></x-input-error>
+                        <x-label>Total reparación (Bs):</x-label>
+                        <x-input type="number" :value="$reparacion['costo_total'] ?? 0" class="w-full" disabled="true"></x-input>
                     </div>
                 </div>
 
@@ -253,7 +235,7 @@
                         // error sin serlo. Hasta que se escriba una cifra no hay
                         // ganancia que calcular.
                         $hayCobro = $cobro > 0;
-                        $ganancia = $cobro - (float) ($reparacion['costo_total_bs'] ?? 0);
+                        $ganancia = $cobro - (float) ($reparacion['costo_total'] ?? 0);
                     @endphp
                     <div class="m-2 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
                         <div>
@@ -270,7 +252,7 @@
                             @if ($hayCobro)
                                 <p class="mt-1 text-xs {{ $ganancia >= 0 ? 'text-green-600' : 'text-red-600' }}">
                                     Cobro ({{ number_format($cobro, 2) }}) menos el costo del trabajo
-                                    ({{ number_format($reparacion['costo_total_bs'] ?? 0, 2) }}).
+                                    ({{ number_format($reparacion['costo_total'] ?? 0, 2) }}).
                                 </p>
                             @else
                                 <p class="mt-1 text-xs text-gray-500">

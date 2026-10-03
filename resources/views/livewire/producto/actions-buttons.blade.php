@@ -6,11 +6,11 @@
                 Editar
             </button>
         @endcan
-        @if ($row->estado == 'Vendido')
+        @if (in_array($row->estado, \App\Enums\ProductoEstado::vendidos(), true))
             @can('producto.garantia')
                 <button wire:click="openProductoGarantiaModal({{ $row->id }})"
                     class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
-                    Garantia
+                    Garantía
                 </button>
             @endcan
             @can('producto.trabajo-externo')
@@ -20,10 +20,22 @@
                 </button>
             @endcan
         @endif
+        @can('producto.regalos')
+            <button wire:click="openProductoRegalosModal({{ $row->id }})"
+                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
+                Regalos
+            </button>
+        @endcan
         @can('producto.historial')
             <button wire:click="openProductoHistorial({{ $row->id }})"
                 class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
                 Historial
+            </button>
+        @endcan
+        @can('producto.baja')
+            <button wire:click="openProductoBajaModal({{ $row->id }})"
+                class="block px-4 py-2 text-sm text-red-600 hover:bg-red-100 w-full text-left">
+                {{ $row->dado_de_baja_at ? 'Revertir baja' : 'Dar de baja' }}
             </button>
         @endcan
         @can('producto.delete')

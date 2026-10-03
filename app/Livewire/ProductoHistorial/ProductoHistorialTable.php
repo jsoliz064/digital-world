@@ -44,10 +44,8 @@ class ProductoHistorialTable extends DataTableComponent
             ->setEmptyMessage('Este producto no tiene movimientos registrados.');
 
         // El paquete solo pide al SELECT los campos de las columnas declaradas.
-        // venta_repuesto_id distingue los cobros viejos (ver la columna Evento) y
         // cambios es lo que pinta x-bitacora-cambios debajo de la descripcion.
         $this->setAdditionalSelects([
-            'bitacoras.venta_repuesto_id',
             'bitacoras.cambios',
         ]);
     }
@@ -60,17 +58,7 @@ class ProductoHistorialTable extends DataTableComponent
 
             Column::make('Evento', 'evento')
                 ->sortable()
-                ->format(function ($value, $row) {
-                    // Las filas copiadas de productos_historiales guardaban el
-                    // cobro de un repuesto como 'Vendido'. Sin distinguirlo, una
-                    // venta con tres piezas dejaba cuatro filas iguales. Las
-                    // nuevas ya llevan su propio evento, 'cobro'.
-                    if ($value === 'Vendido' && $row->venta_repuesto_id) {
-                        return BitacoraEvento::badge(BitacoraEvento::Cobro->value);
-                    }
-
-                    return BitacoraEvento::badge($value);
-                })
+                ->format(fn($value) => BitacoraEvento::badge($value))
                 ->html(),
 
             Column::make('Descripción', 'descripcion')

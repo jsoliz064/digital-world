@@ -3,6 +3,7 @@
 namespace App\Livewire\Producto;
 
 use App\Enums\ProductoEstado;
+use App\Enums\ProductoTipoVenta;
 use App\Models\Producto;
 use App\Models\ProductoModelo;
 use App\Models\Sucursal;
@@ -24,44 +25,37 @@ class ProductoFilterModel extends Component
         $models = ProductoModelo::orderBy('id')->get();
         $sucursales = Sucursal::all();
 
-        // 2. Obtenemos todos los conteos de productos en una sola consulta
+        // 2. Todos los conteos en una sola consulta, sin los dados de baja
+        //    (archivados). La oferta es un SUBCONTEO del inventario
+        //    (tipo_venta = Oferta), no un estado: se cuenta aparte y no suma al
+        //    total, o esos equipos contarian doble.
         $counts = Producto::query()
+            ->vigentes()
             ->select('producto_modelo_id', 'sucursal_id', 'estado', DB::raw('COUNT(*) as total'))
+            ->selectRaw('SUM(tipo_venta = ?) as ofertas', [ProductoTipoVenta::Oferta->value])
             ->whereNotNull('sucursal_id')
             ->groupBy('producto_modelo_id', 'sucursal_id', 'estado')
             ->get();
 
-        // 3. Procesamos los datos para estructurarlos, usando los conteos para un acceso fácil
+        // Los estados que son stock (todo menos lo vendido).
+        $claves = ['inventario', 'reparacion', 'fuera', 'roto', 'reserva'];
+
+        // 3. Procesamos los datos para estructurarlos
         $processedCounts = [];
         foreach ($counts as $countData) {
             $modelId = $countData->producto_modelo_id;
             $sucursalId = $countData->sucursal_id;
-            $estado = $countData->estado;
+            $estadoKey = strtolower((string) $countData->estado);
 
-            if (!isset($processedCounts[$modelId])) {
-                $processedCounts[$modelId] = [];
-            }
-            if (!isset($processedCounts[$modelId][$sucursalId])) {
-                $processedCounts[$modelId][$sucursalId] = [
-                    'inventario' => 0,
-                    'vendido' => 0, // Mantenemos este para la consulta, pero no lo usamos para el total final
-                    'reparacion' => 0,
-                    'fuera' => 0,
-                    'roto' => 0,
-                    'oferta' => 0,
-                    'transito' => 0,
-                ];
+            $processedCounts[$modelId][$sucursalId] ??= array_fill_keys([...$claves, 'oferta'], 0);
+
+            if (in_array($estadoKey, $claves, true)) {
+                $processedCounts[$modelId][$sucursalId][$estadoKey] += $countData->total;
             }
 
-            if ($estado) {
-                $estadoKey = strtolower($estado);
-                if (array_key_exists($estadoKey, $processedCounts[$modelId][$sucursalId])) {
-                    $processedCounts[$modelId][$sucursalId][$estadoKey] += $countData->total;
-                }
+            if ($estadoKey === 'inventario') {
+                $processedCounts[$modelId][$sucursalId]['oferta'] += (int) $countData->ofertas;
             }
-
-            // El contador de ofertas lo llena solo el bloque de arriba: Oferta
-            // es un estado mas y entra por strtolower($estado).
         }
 
         // 4. Llenamos los modelos con los datos resumidos
@@ -70,34 +64,13 @@ class ProductoFilterModel extends Component
             $totalProductos = 0;
 
             foreach ($sucursales as $sucursal) {
-                $summary = [
-                    'nombre' => $sucursal->nombre,
-                    'total' => 0,
-                    'inventario' => 0,
-                    'reparacion' => 0,
-                    'fuera' => 0,
-                    'roto' => 0,
-                    'oferta' => 0,
-                    'transito' => 0,
-                ];
+                $summary = ['nombre' => $sucursal->nombre, 'total' => 0] + array_fill_keys([...$claves, 'oferta'], 0);
 
                 if (isset($processedCounts[$model->id][$sucursal->id])) {
-                    $sucursalData = $processedCounts[$model->id][$sucursal->id];
-                    $summary['inventario'] = $sucursalData['inventario'];
-                    $summary['reparacion'] = $sucursalData['reparacion'];
-                    $summary['fuera'] = $sucursalData['fuera'];
-                    $summary['roto'] = $sucursalData['roto'];
-                    $summary['oferta'] = $sucursalData['oferta'];
-                    $summary['transito'] = $sucursalData['transito'];
-
-                    // Sin los vendidos, que ya no son stock. 'oferta' SI suma:
-                    // cuando salia de tipo_venta era un subconteo de inventario
-                    // y sumarlo contaba doble, pero ahora es un estado aparte y
-                    // dejarlo fuera borraba esos equipos del total del modelo.
-                    $summary['total'] = $sucursalData['inventario'] + $sucursalData['oferta'] + $sucursalData['reparacion'] + $sucursalData['fuera'] + $sucursalData['roto'] + $sucursalData['transito'];
+                    $summary = array_merge($summary, $processedCounts[$model->id][$sucursal->id]);
+                    $summary['total'] = array_sum(array_intersect_key($summary, array_flip($claves)));
                 }
 
-                // Añadimos el total de esta sucursal al total general del modelo
                 $totalProductos += $summary['total'];
 
                 $model->sucursales_summary->put($sucursal->id, $summary);

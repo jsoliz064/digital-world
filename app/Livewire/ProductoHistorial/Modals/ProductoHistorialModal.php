@@ -21,12 +21,14 @@ class ProductoHistorialModal extends Component
             'reparacion.repuestos.repuesto.categoria',
             'reparacion.repuestos.repuesto.modelo',
             'venta.user',
-            'venta.detalles.producto',
+            'venta.fichaCliente',
+            'venta.detalles.producto.modelo',
+            'venta.detalles.repuesto',
+            'venta.detalles.accesorio',
+            'venta.detalles.reparacionRepuesto',
             // Para las filas de repuesto cobrado, que muestran lo suyo y no la
             // venta del telefono.
             'repuesto',
-            'ventaRepuesto.detalles.repuesto',
-            'ventaRepuesto.detalles.reparacionRepuesto',
         ]);
 
         return view('livewire.producto-historial.modals.producto-historial-modal');
@@ -37,8 +39,8 @@ class ProductoHistorialModal extends Component
     {
         // Se sigue llamando $productoHistorial: el blade y x-repuesto-cobrado-
         // detalle lo leen con ese nombre, y la bitacora conserva los mismos
-        // enlaces (reparacion, venta, repuesto, ventaRepuesto) con los mismos
-        // nombres de columna. Solo `estado` paso a llamarse `evento`.
+        // enlaces (reparacion, venta, repuesto) con los mismos nombres de
+        // columna. Solo `estado` paso a llamarse `evento`.
         $this->productoHistorial = Bitacora::find($id);
         $this->openModal = true;
     }

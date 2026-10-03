@@ -57,15 +57,16 @@
                      condiciones de abajo: pintaba la reparacion entera y el
                      cliente, el total y la tabla de productos DEL TELEFONO como
                      si fueran del repuesto. Con tres piezas cobradas salian
-                     tres modales identicos. Esta fila habla de SU repuesto. --}}
-                @if ($productoHistorial->venta_repuesto_id)
+                     tres modales identicos. Esta fila habla de SU repuesto
+                     (eventos cobro / cobro-anulado). --}}
+                @if (in_array($productoHistorial->evento, ['cobro', 'cobro-anulado'], true))
                     <x-repuesto-cobrado-detalle :historial="$productoHistorial" />
                 @else
                     @if ($productoHistorial->reparacion)
                         <x-reparacion-detalle :reparacion="$productoHistorial->reparacion" />
                     @endif
 
-                    @if ($productoHistorial->venta_id && $productoHistorial->evento == 'Vendido')
+                    @if ($productoHistorial->venta && in_array($productoHistorial->evento, \App\Enums\ProductoEstado::vendidos(), true))
                     @php
                         $venta = $productoHistorial->venta;
                     @endphp
@@ -83,33 +84,23 @@
                         </div>
 
                         <div>
-                            <x-label>Subtotal:</x-label>
+                            <x-label>Subtotal (Bs):</x-label>
                             <x-input type="text" value="{{ number_format($venta->subtotal, 2) }}" class="w-full"
                                 disabled />
                         </div>
 
                         <div>
-                            <x-label>Descuento:</x-label>
+                            <x-label>Descuento (Bs):</x-label>
                             <x-input type="text" value="{{ number_format($venta->descuento, 2) }}" class="w-full"
                                 disabled />
                         </div>
 
                         <div>
-                            <x-label>Total:</x-label>
+                            <x-label>Total (Bs):</x-label>
                             <x-input type="text" value="{{ number_format($venta->total, 2) }}" class="w-full"
                                 disabled />
                         </div>
 
-                        <div>
-                            <x-label>Tipo de cambio:</x-label>
-                            <x-input type="text" value="{{ $venta->tipo_cambio }}" class="w-full" disabled />
-                        </div>
-
-                        <div>
-                            <x-label>Total en Bs.:</x-label>
-                            <x-input type="text" value="{{ number_format($venta->total_bs, 2) }}" class="w-full"
-                                disabled />
-                        </div>
                     </div>
 
                     <div class="m-4">
@@ -118,12 +109,12 @@
                             <table class="min-w-full bg-white border border-gray-300 shadow-sm">
                                 <thead class="bg-gray-100">
                                     <tr>
-                                        <th class="px-4 py-2 text-left border-b">Producto</th>
+                                        <th class="px-4 py-2 text-left border-b">Artículo</th>
+                                        <th class="px-4 py-2 text-left border-b">Cant.</th>
                                         <th class="px-4 py-2 text-left border-b">Costo</th>
                                         <th class="px-4 py-2 text-left border-b">Precio</th>
                                         <th class="px-4 py-2 text-left border-b">Descuento</th>
                                         <th class="px-4 py-2 text-left border-b">Subtotal</th>
-                                        <th class="px-4 py-2 text-left border-b">Subtotal Bs.</th>
                                         <th class="px-4 py-2 text-left border-b">Garantía (meses)</th>
                                         <th class="px-4 py-2 text-left border-b">Fecha Expiración</th>
                                     </tr>
@@ -131,8 +122,8 @@
                                 <tbody>
                                     @foreach ($venta->detalles as $detalle)
                                         <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 border-b">
-                                                {{ $detalle->producto->descripcion ?? 'Sin descripción' }}</td>
+                                            <td class="px-4 py-2 border-b">{{ $detalle->descripcion() }}</td>
+                                            <td class="px-4 py-2 border-b">{{ (int) $detalle->cantidad }}</td>
                                             <td class="px-4 py-2 border-b">{{ number_format($detalle->costo, 2) }}
                                             </td>
                                             <td class="px-4 py-2 border-b">{{ number_format($detalle->precio, 2) }}
@@ -141,10 +132,8 @@
                                             </td>
                                             <td class="px-4 py-2 border-b">{{ number_format($detalle->subtotal, 2) }}
                                             </td>
-                                            <td class="px-4 py-2 border-b">
-                                                {{ number_format($detalle->subtotal_bs, 2) }}</td>
                                             <td class="px-4 py-2 border-b">{{ $detalle->garantia_meses }}</td>
-                                            <td class="px-4 py-2 border-b">{{ $detalle->garantia_fecha_exp }}</td>
+                                            <td class="px-4 py-2 border-b">{{ $detalle->garantia_fecha_exp ? \Carbon\Carbon::parse($detalle->garantia_fecha_exp)->format('d/m/Y') : '' }}</td>
                                         </tr>
                                     @endforeach
                                 </tbody>

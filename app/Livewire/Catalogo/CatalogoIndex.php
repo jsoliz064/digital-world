@@ -64,7 +64,7 @@ class CatalogoIndex extends Component
     {
         $query = Producto::query()
             ->where('producto_modelo_id', $modelId)
-            ->whereNotIn('estado', [ProductoEstado::Vendido->value, ProductoEstado::Roto->value]) // Explicitly exclude sold products
+            ->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
             ->where(function ($q) {
                 if ($this->showReparacion) {
                     $q->where('sin_reparacion', true)
@@ -94,7 +94,12 @@ class CatalogoIndex extends Component
 
     public function selectProduct($productId)
     {
-        $this->selectedProduct = Producto::with('imagenes')->find($productId);
+        // Solo lo publicable: un id viejo (vendido, reservado, dado de baja)
+        // no se abre aunque llegue por la peticion.
+        $this->selectedProduct = Producto::with('imagenes')
+            ->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())
+            ->whereNull('productos.dado_de_baja_at')
+            ->find($productId);
         $this->currentImageIndex = 0;
         $this->dispatch('product-selected');
     }
@@ -142,14 +147,14 @@ class CatalogoIndex extends Component
     {
         $this->models = ProductoModelo::withCount([
             'productos as productos_disponibles_count' => function ($query) {
-                $query->whereNotIn('estado', [ProductoEstado::Vendido->value, ProductoEstado::Roto->value])
+                $query->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
                     ->where(function ($q) {
                         $q->where('disponible_catalogo', 1)
                             ->orWhereIn('estado', ProductoEstado::disponibles());
                     });
             },
             'productos as productos_reparacion_count' => function ($query) {
-                $query->whereNotIn('estado', [ProductoEstado::Vendido->value, ProductoEstado::Roto->value])
+                $query->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
                     ->where(function ($q) {
                         $q->where('sin_reparacion', 1)
                             ->orWhere('estado', ProductoEstado::Reparacion->value);
@@ -163,7 +168,7 @@ class CatalogoIndex extends Component
 
         $query = Producto::query()
             ->with(['imagenes', 'modelo'])
-            ->whereNotIn('estado', [ProductoEstado::Vendido->value, ProductoEstado::Roto->value])
+            ->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
             ->where(function ($q) {
                 if ($this->showReparacion) {
                     $q->where('sin_reparacion', 1)

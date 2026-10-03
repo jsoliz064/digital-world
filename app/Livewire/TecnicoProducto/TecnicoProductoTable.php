@@ -94,7 +94,7 @@ class TecnicoProductoTable extends DataTableComponent
 
         array_push(
             $columns,
-            Column::make("Costo Total", "costo_total_bs")
+            Column::make("Costo Total", "costo_total")
                 ->sortable()
                 ->format(function ($value) {
                     return 'Bs. ' . number_format($value, 2);

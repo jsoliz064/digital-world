@@ -21,16 +21,12 @@ use Rappasoft\LaravelLivewireTables\Views\Filters\SelectFilter;
  * edicion, terminada, garantia), y "Repuestos" lista una fila por pieza sin la
  * mano de obra. Aqui la unidad es la reparacion, con su total al pie.
  *
- * UNIDADES (las mismas que documenta resources/views/components/reparacion-detalle.blade.php,
- * comprobadas contra los datos):
- *   - costo (mano de obra del tecnico), costo_repuestos y costo_total_bs en Bs
- *   - costo_total en USD, guardado como costo_total_bs / tipo_cambio
- *   - cobro_cliente en Bs, y solo tiene valor cuando tipo = Externo
+ * UNIDADES: todo en Bs. costo (mano de obra del tecnico) + costo_repuestos =
+ * costo_total. cobro_cliente solo tiene valor cuando tipo = Externo.
  *
- * El total de Bs es el numero grande a proposito: es puro apilado de importes
- * guardados. El de USD depende de tipo_cambio, que se envenena por dos caminos
- * reales -un `?? 1` cuando el producto no tiene lote, y un campo editable con
- * min:0-, asi que la columna T/C se muestra y se pinta en rojo cuando vale 0 o 1.
+ * Antes habia ademas un total en USD dividido por una tasa de cambio que se
+ * envenenaba solo (un `?? 1` sin lote, un campo editable con min:0); al pasar
+ * todo a Bs se fue la columna T/C con el.
  */
 class ProductoReparacionesTable extends DataTableComponent
 {
@@ -161,10 +157,9 @@ class ProductoReparacionesTable extends DataTableComponent
         $totales = $this->scopedQuery()
             ->toBase()
             ->selectRaw('COUNT(*) as filas')
-            ->selectRaw('COALESCE(SUM(costo), 0) as mano_obra_bs')
-            ->selectRaw('COALESCE(SUM(costo_repuestos), 0) as repuestos_bs')
-            ->selectRaw('COALESCE(SUM(costo_total_bs), 0) as total_bs')
-            ->selectRaw('COALESCE(SUM(costo_total), 0) as total_usd')
+            ->selectRaw('COALESCE(SUM(costo), 0) as mano_obra')
+            ->selectRaw('COALESCE(SUM(costo_repuestos), 0) as repuestos')
+            ->selectRaw('COALESCE(SUM(costo_total), 0) as total')
             ->first();
 
         $totales->unidades = (int) ProductoReparacionRepuesto::query()
@@ -276,7 +271,7 @@ class ProductoReparacionesTable extends DataTableComponent
             Column::make('Mano de obra (Bs)', 'costo')
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->mano_obra_bs, 2)),
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->mano_obra, 2)),
 
             // Valor guardado, sin recalcular: mismo criterio que el bloque de
             // detalle ("no se recalcula nada"). ProductoEstadoModal lo
@@ -285,43 +280,16 @@ class ProductoReparacionesTable extends DataTableComponent
             Column::make('Repuestos (Bs)', 'costo_repuestos')
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->repuestos_bs, 2)),
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->repuestos, 2)),
 
             // SIN collapse*: la celda del pie hereda el `hidden lg:table-cell`
             // de la columna (td/plain.blade.php) y la fila de totales no tiene
             // boton para desplegarse, asi que el total desapareceria por debajo
             // de lg. Es el numero por el que se abre esta pestana.
-            Column::make('Total (Bs)', 'costo_total_bs')
+            Column::make('Total (Bs)', 'costo_total')
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total_bs, 2)),
-
-            // Visible a proposito: tipo_cambio se copia del lote de compra, y
-            // queda en 1 cuando el producto no tiene lote (el `?? 1` de
-            // ProductoReparacionClienteModal) o en 0 porque el campo es editable
-            // con min:0. En los dos casos el Total (USD) de esa fila miente, y
-            // verlo aqui es la unica pista.
-            Column::make('T/C', 'tipo_cambio')
-                ->sortable()
-                ->format(function ($value) {
-                    $tc = number_format((float) $value, 2);
-
-                    return (float) $value > 1
-                        ? $tc
-                        : '<span class="text-red-600 dark:text-red-400 font-semibold" '
-                            . 'title="Con tipo de cambio 0 o 1 el total en USD de esta fila no es confiable">'
-                            . $tc . '</span>';
-                })
-                ->html()
-                ->collapseOnTablet(),
-
-            // Suma de los USD REGISTRADOS en cada reparacion, no una conversion
-            // a cotizacion de hoy: cada fila guarda su propio tipo_cambio.
-            Column::make('Total (USD)', 'costo_total')
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => '$ ' . number_format((float) $this->getTotales()->total_usd, 2))
-                ->collapseOnMobile(),
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total, 2)),
 
             // Sin total al pie: mezclar un cobro al cliente con las columnas de
             // costo en la misma fila de totales invita a sumarlos.

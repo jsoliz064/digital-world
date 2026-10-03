@@ -31,7 +31,7 @@
                     {{ $producto->imei }}</td>
                 <td>{{ $reparacion->costo }}</td>
                 <td>{{ $reparacion->costo_repuestos }}</td>
-                <td>{{ $reparacion->costo_total_bs }}</td>
+                <td>{{ $reparacion->costo_total }}</td>
                 <td>{{ $reparacion->repuestos_tecnico }}</td>
                 <td>{{ $reparacion->repuestos_propios }}</td>
                 <td>{{ $reparacion->repuestos_devolver }}</td>

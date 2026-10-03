@@ -11,8 +11,13 @@
                 <div class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
                     <div>
                         <x-label>Buscar</x-label>
-                        <x-input type="text" class="w-full" placeholder="IMEI, modelo, capacidad, color..."
-                            wire:model.live.debounce.500ms="search" autocomplete="off" />
+                        <div class="mt-1 flex gap-2" data-escaner>
+                            <x-input type="text" class="w-full" placeholder="IMEI, SKU, modelo, color..."
+                                wire:model.live.debounce.500ms="search"
+                                x-on:keydown.enter.prevent="$wire.marcarPorCodigo($el.value); $el.value = ''"
+                                autocomplete="off" />
+                            <x-boton-escaner continuo />
+                        </div>
                     </div>
 
                     <div>
@@ -101,9 +106,9 @@
                                     </td>
                                     <td class="p-2 border">{{ $p->sucursal?->nombre ?? '-' }}</td>
                                     <td class="p-2 border text-center">
-                                        {{-- Aqui solo llegan equipos disponibles, asi que
-                                             el estado distingue la oferta del inventario. --}}
-                                        @if ($p->estado === App\Enums\ProductoEstado::Oferta->value)
+                                        {{-- Aqui solo llegan equipos disponibles (Inventario):
+                                             lo que distingue la oferta es el tipo de venta. --}}
+                                        @if ($p->tipo_venta === App\Enums\ProductoTipoVenta::Oferta->value)
                                             <span class="text-purple-600 font-semibold">Oferta</span>
                                         @else
                                             {{ $p->estado }}

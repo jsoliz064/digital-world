@@ -2,10 +2,10 @@
 
 namespace App\Livewire\Producto\Modals;
 
+use App\Enums\ArticuloTipo;
 use App\Enums\ProductoEstado;
-use App\Models\Cliente;
-use App\Models\Producto;
 use App\Models\Bitacora;
+use App\Models\Producto;
 use App\Models\ProductoModelo;
 use App\Models\ProductoReparacion;
 use App\Models\ProductoReparacionRepuesto;
@@ -13,26 +13,31 @@ use App\Models\Repuesto;
 use App\Models\RepuestoCategoria;
 use App\Models\Sucursal;
 use App\Models\Tecnicos;
-use App\Models\Venta;
-use App\Models\VentaProducto;
-use App\Models\VentaRepuesto;
+use App\Services\AnulacionVentaService;
 use App\Services\EstadoProductoService;
-use App\Services\RepuestosDeReparacionService;
-use App\Services\StockRepuestoService;
-use App\Traits\ClienteBuscadorTrait;
-use App\Traits\GuardadoIdempotenteTrait;
-use Illuminate\Database\QueryException;
+use App\Services\StockService;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Livewire\Component;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
-use Illuminate\Support\Facades\Auth;
+use App\Traits\EligePorCodigoTrait;
+use Livewire\Component;
 
+/**
+ * Cambiar el estado de un equipo a mano: Inventario, Reparacion (con tecnico y
+ * piezas), Fuera (salio del local), Roto, Reserva. Todo en Bs.
+ *
+ * NO vende: la venta se hace en la pantalla de ventas (el boton "Vender" lleva
+ * a ventas/crear?producto=). Antes este modal era una tercera puerta de venta
+ * con su propia copia de la logica. Con el equipo vendido, muestra la venta y
+ * permite anular su linea (AnulacionVentaService).
+ *
+ * Fuera, Roto y Reserva NO son bajas: la baja es aparte (ProductoBajaModal).
+ */
 class ProductoEstadoModal extends Component
 {
-    use ClienteBuscadorTrait;
-    use GuardadoIdempotenteTrait;
+    use EligePorCodigoTrait;
 
     public $openModal = false;
 
@@ -40,11 +45,8 @@ class ProductoEstadoModal extends Component
      * #[Locked] en los dos: el id del producto y el estado del que partimos son
      * la identidad de la operacion. Sin esto, un payload podia pedir el cambio
      * sobre otro telefono o declarar un origen falso para saltarse la
-     * precondicion de EstadoProductoService.
-     *
-     * OJO: #[Locked] NO protege las claves de los arrays de abajo
-     * ($fueraTransito['id'], $vendido['venta_id'], $reparacion['id']). Esos se
-     * revalidan contra producto_id en cada uso.
+     * precondicion de EstadoProductoService. OJO: #[Locked] NO protege las
+     * claves de los arrays de abajo ($reparacion['id']): se revalidan.
      */
     #[Locked]
     public $producto;
@@ -54,14 +56,13 @@ class ProductoEstadoModal extends Component
     public $estadoOrigen;
 
     public $estado;
-    public $fueraTransito = [];
 
-    public $vendido = [];
+    /** La nota de Fuera, Roto o Reserva (a quien se le dio, que le pasa, quien reserva). */
+    public $nota = '';
 
     public $reparacion = [];
     public $tecnico;
     public $tecnicos;
-    public $precioSeleccionado = null;
 
     public $searchRepuesto = '';
     public $categoriaId = null;
@@ -73,205 +74,85 @@ class ProductoEstadoModal extends Component
     public $repuestos = [];
 
     /**
-     * La sucursal de donde salen las piezas que se montan en esta reparacion.
-     *
-     * La elige el tecnico y se CONGELA en cada linea
-     * (productos_reparaciones_repuestos.sucursal_id). No se deduce de
-     * $producto->sucursal_id, y el motivo es concreto: al terminar la reparacion
-     * el equipo se reasigna al Almacen, en otra request. Si manana se quita esta
-     * linea y el stock volviera a la sucursal ACTUAL del producto, iria al
-     * Almacen y la sucursal real quedaria en negativo para siempre.
+     * La sucursal de donde salen las piezas de esta reparacion. Se CONGELA en
+     * cada linea: al terminar, el equipo se muda al Almacen, y quitar la pieza
+     * despues tiene que devolver el stock a la sucursal original.
      */
     public $sucursalRepuestos = null;
 
-    /**
-     * Repuestos de reparaciones previas que se cobran junto al telefono.
-     *
-     *   id de linea de reparacion => precio editado
-     *
-     * Solo se usa en la rama Vendido.
-     */
-    public $repuestosCobrar = [];
-    public $preciosCobrar = [];
+    /** Estados que llevan nota obligatoria. */
+    private const CON_NOTA = ['Fuera', 'Roto', 'Reserva'];
 
-    public function render(RepuestosDeReparacionService $servicio)
+    public function render()
     {
-        $productoEstados = ProductoEstado::toSelectArrayPermission();
-
-        // Solo se ofrecen al vender, y solo mientras la venta no exista: una
-        // vez registrada, esta pantalla es de solo lectura.
-        $repuestosElegibles = collect();
-
-        // Y su gemela: con la venta ya hecha se muestra lo que SE cobro.
-        $ventasRepuestosCobradas = collect();
-
-        if ($this->openModal && !empty($this->vendido['venta_id'])) {
-            $ventasRepuestosCobradas = VentaRepuesto::with([
-                'detalles.repuesto',
-                'detalles.reparacionRepuesto',
-            ])->where('venta_id', $this->vendido['venta_id'])->get();
-        }
-
-        if (
-            $this->openModal && $this->producto
-            && $this->estado === ProductoEstado::Vendido->value
-            && $this->producto->estado !== ProductoEstado::Vendido->value
-        ) {
-            $repuestosElegibles = $servicio->elegibles($this->producto->id);
-
-            foreach ($repuestosElegibles as $linea) {
-                // Precio del catalogo, editable antes de confirmar.
-                $this->preciosCobrar[(string) $linea->id] ??= $linea->repuesto?->precio ?? 0;
-            }
-        }
-
-        // En render(): es variable de vista, asi que no viaja en el payload de
-        // Livewire ni la vacia un reset().
-        $sucursales = Sucursal::activas()->orderBy('nombre')->get();
-
-        return view(
-            'livewire.producto.modals.producto-estado-modal',
-            compact('productoEstados', 'repuestosElegibles', 'ventasRepuestosCobradas', 'sucursales')
-        );
+        return view('livewire.producto.modals.producto-estado-modal', [
+            'productoEstados' => ProductoEstado::toSelectArrayPermission(),
+            // En render(): variable de vista, no viaja en el payload.
+            'sucursales' => $this->openModal ? Sucursal::activas()->orderBy('nombre')->get() : collect(),
+            'lineaVenta' => $this->openModal && $this->producto ? $this->producto->ventaDetalle()->with('venta.fichaCliente')->first() : null,
+        ]);
     }
 
     #[On('openProductoEstadoModal')]
     public function openModal($id)
     {
-        $producto = Producto::find($id);
-        $this->categorias = RepuestoCategoria::all();
-        $this->modelos = ProductoModelo::all();
+        $producto = Producto::findOrFail($id);
+        $this->resetErrorBag();
+        $this->categorias = RepuestoCategoria::orderBy('nombre')->get();
+        $this->modelos = ProductoModelo::orderBy('nombre')->get();
         $this->tecnicos = Tecnicos::all();
         $this->producto = $producto;
-        $this->openModal = true;
         $this->estado = $producto->estado;
+        $this->repuestos = [];
+        $this->nota = '';
 
         // El estado de partida se congela al abrir: es contra este que se
         // compara al guardar, no contra el que haya en la base en ese momento.
         $this->estadoOrigen = $producto->estado;
 
-        // Una clave por apertura del modal: la rama Vendido crea una Venta, y
-        // reintentarla no debe crear la segunda.
-        $this->nuevaClaveIdempotencia();
-
-        if ($producto->estado == ProductoEstado::Fuera->value || $producto->estado == ProductoEstado::Transito->value) {
-            // Solo el texto, ya no el id de la fila: antes se guardaba el id para
-            // SOBRESCRIBIR esa fila al guardar, y la bitacora es inmutable.
-            $this->fueraTransito = ['descripcion' => $this->notaVigente()?->descripcion];
-        }
-
-        if ($producto->estado == ProductoEstado::Vendido->value) {
-            $ventaProducto = $producto->ventaProducto;
-            $this->vendido = $ventaProducto ? $ventaProducto->toArray() : $this->initialVendido();
-            // El nombre a MOSTRAR sale de nombreCliente(): la ficha si la hay, el
-            // texto congelado si la venta es anterior al modulo de clientes.
-            $this->vendido['cliente'] = $ventaProducto ? $ventaProducto->venta->nombreCliente() : null;
-            $this->vendido['cliente_id'] = $ventaProducto ? $ventaProducto->venta->cliente_id : null;
+        if (in_array($producto->estado, self::CON_NOTA, true)) {
+            $this->nota = $this->notaVigente()?->descripcion ?? '';
         }
 
         if ($producto->estado == ProductoEstado::Reparacion->value) {
             $productoReparacion = $producto->ultimaReparacion();
-            $this->tecnico = $productoReparacion ? $productoReparacion->tecnico : null;
+            $this->tecnico = $productoReparacion?->tecnico;
             $this->reparacion = $productoReparacion ? $productoReparacion->toArray() : $this->initialReparacion();
-            $this->reparacion['pagado'] = (bool) $this->reparacion['pagado'];
-            $this->reparacion['garantia_tecnico'] = (bool) $this->reparacion['garantia_tecnico'];
+            $this->reparacion['pagado'] = (bool) ($this->reparacion['pagado'] ?? false);
+            $this->reparacion['garantia_tecnico'] = (bool) ($this->reparacion['garantia_tecnico'] ?? false);
         }
+
+        $this->openModal = true;
     }
 
-    /**
-     * Guarda la ficha elegida en la cabecera de la venta que este modal creara.
-     *
-     * Escribe las DOS claves: `cliente_id` es el enlace y `cliente` el nombre que
-     * queda congelado en el documento.
-     */
-    protected function fijarCliente(?Cliente $cliente): void
+    public function esVendido(): bool
     {
-        $this->vendido['cliente_id'] = $cliente?->id;
-        $this->vendido['cliente'] = $cliente?->nombre;
-    }
-
-    public function clienteIdElegido(): ?int
-    {
-        return isset($this->vendido['cliente_id']) ? (int) $this->vendido['cliente_id'] : null;
-    }
-
-    public function initialVendido()
-    {
-        return [
-            'cliente' => null,
-            'cliente_id' => null,
-            'garantia_meses' => 3,
-            'garantia_fecha_exp' => now()->addMonths(3)->format('Y-m-d'),
-            'descuento' => 0,
-            'precio' => 0,
-            'subtotal' => 0,
-            'tipo_cambio' => $this->producto->compra->tipo_cambio,
-            'subtotal_bs' => 0
-        ];
-    }
-
-    public function seleccionarPrecio($precio)
-    {
-        $this->precioSeleccionado = $precio;
-        $this->vendido['precio'] = $precio;
-        $this->vendido['subtotal'] = $precio;
-        $this->vendido['subtotal_bs'] = $precio * $this->vendido['tipo_cambio'];
+        return $this->producto && in_array($this->producto->estado, ProductoEstado::vendidos(), true);
     }
 
     public function updatedEstado()
     {
-        if ($this->estado == 'Vendido') {
-            $this->vendido = $this->initialVendido();
-        }
-
-        if ($this->estado == 'Reparacion') {
+        if ($this->estado == ProductoEstado::Reparacion->value && empty($this->reparacion['id'])) {
             $this->reparacion = $this->initialReparacion();
         }
     }
 
-    public function updatedVendidoPrecio()
+    /** "Vender" lleva a la pantalla de ventas con el equipo ya cargado. */
+    public function vender()
     {
-        $this->calcularSubTotalVendido();
+        abort_unless(Auth::user()?->can('venta.create'), 403);
+
+        return redirect()->route('ventas.crear', ['producto' => $this->producto->id]);
     }
 
-    public function updatedVendidoDescuento()
-    {
-        $this->calcularSubTotalVendido();
-    }
-
-    public function updatedVendidoTipoCambio()
-    {
-        $this->calcularSubTotalVendido();
-    }
-
-    public function updatedVendidoGarantiaMeses()
-    {
-        $meses = (int) $this->vendido['garantia_meses'];
-        if ($meses < 0) {
-            $meses = 0;
-            $this->vendido['garantia_meses'] = 0;
-        }
-        $this->vendido['garantia_fecha_exp'] = now()->addMonths($meses)->format('Y-m-d');
-    }
-
-    public function calcularSubTotalVendido()
-    {
-        $precio = floatval($this->vendido['precio'] ?? 0);
-        $descuento = floatval($this->vendido['descuento'] ?? 0);
-        $this->vendido['subtotal'] = max($precio - $descuento, 0);
-        $this->vendido['subtotal_bs'] = $this->vendido['subtotal'] * $this->vendido['tipo_cambio'];
-    }
-
-    // REPARACION
+    // REPARACION (en Bs)
 
     public function initialReparacion()
     {
         return [
             'costo' => 0,
             'costo_repuestos' => 0,
-            'tipo_cambio' => $this->producto->compra->tipo_cambio,
             'costo_total' => 0,
-            'costo_total_bs' => 0,
             'fecha_entrega' => now()->format('Y-m-d'),
             'pagado' => false,
             'garantia_tecnico' => false,
@@ -280,17 +161,13 @@ class ProductoEstadoModal extends Component
 
     public function updatedCategoriaId()
     {
-        if ($this->categoriaId == "") {
-            $this->categoriaId = null;
-        }
+        $this->categoriaId = $this->categoriaId ?: null;
         $this->filterRepuestos($this->searchRepuesto);
     }
 
     public function updatedModeloId()
     {
-        if ($this->modeloId == "") {
-            $this->modeloId = null;
-        }
+        $this->modeloId = $this->modeloId ?: null;
         $this->filterRepuestos($this->searchRepuesto);
     }
 
@@ -298,6 +175,7 @@ class ProductoEstadoModal extends Component
     {
         if (empty($value)) {
             $this->filteredRepuestos = [];
+
             return;
         }
 
@@ -308,44 +186,62 @@ class ProductoEstadoModal extends Component
     {
         $idsExistentes = collect($this->repuestos)->pluck('repuesto_id')->toArray();
 
-        // Un accesorio no se monta en una reparacion: el filtro es
-        // incondicional y vive en un scope para que el proximo buscador que
-        // alguien escriba no se olvide de el.
-        $this->filteredRepuestos = Repuesto::soloRepuestos()->where(function ($query) use ($search) {
-            $query->where('nombre', 'like', '%' . $search . '%')
+        // La tabla de repuestos ya solo tiene piezas de reparacion: los
+        // accesorios viven en su propia tabla.
+        $this->filteredRepuestos = Repuesto::query()
+            ->with(['modelo:id,nombre', 'categoria:id,nombre'])
+            ->where(fn($q) => $q->where('nombre', 'like', '%' . $search . '%')
+                ->orWhere('sku', $search)
+                ->orWhere('upc', $search)
                 ->orWhere('fabricante', 'like', '%' . $search . '%')
-                ->orWhereHas('modelo', function ($queryModelo) use ($search) {
-                    $queryModelo->where('nombre', 'like', '%' . $search . '%');
-                });
-        })
+                ->orWhereHas('modelo', fn($m) => $m->where('nombre', 'like', '%' . $search . '%')))
             ->whereNotIn('id', $idsExistentes)
-            ->when($this->categoriaId, function ($query) {
-                $query->where('repuesto_categoria_id', $this->categoriaId);
-            })
-            ->when($this->modeloId, function ($query) {
-                $query->where('producto_modelo_id', $this->modeloId);
-            })
+            ->when($this->categoriaId, fn($q) => $q->where('repuesto_categoria_id', $this->categoriaId))
+            ->when($this->modeloId, fn($q) => $q->where('producto_modelo_id', $this->modeloId))
             ->orderBy('nombre')
             ->take(20)
             ->get();
     }
 
+    /**
+     * Enter en el buscador de repuestos (pistola o camara): un SKU/UPC exacto
+     * entre los resultados lo agrega; si no, deja la lista.
+     */
+    public function elegirRepuestoPorCodigo(?string $codigo = null): void
+    {
+        $codigo = trim((string) $codigo);
+        $this->searchRepuesto = $codigo;
+        $this->updatedSearchRepuesto($codigo);
+
+        $repuesto = $this->unicoPorCodigo($this->filteredRepuestos, $codigo, ['sku', 'upc']);
+
+        if ($repuesto) {
+            $this->selectRepuesto($repuesto->id);
+
+            return;
+        }
+
+        if ($codigo !== '' && collect($this->filteredRepuestos)->isEmpty()) {
+            toastr()->warning("Ningún repuesto coincide con «{$codigo}».");
+        }
+    }
+
     public function selectRepuesto($id)
     {
-        $repuesto = Repuesto::find($id);
-        if (!$repuesto)
+        $repuesto = Repuesto::with('modelo')->find($id);
+        if (!$repuesto) {
             return;
+        }
 
         array_unshift($this->repuestos, [
             'id' => null,
             'repuesto_id' => $repuesto->id,
             'nombre' => $repuesto->nombre,
-            'modelo' => $repuesto->modelo ? $repuesto->modelo->nombre : '',
+            'modelo' => $repuesto->modelo?->nombre ?? '',
             'fabricante' => $repuesto->fabricante,
-            'costo' => $repuesto->costo,
+            'costo' => (float) $repuesto->costo,
             'cantidad' => 1,
-            'subtotal_costo' => $repuesto->costo,
-            'subtotal_costo_bs' => $repuesto->costo * $this->reparacion['tipo_cambio'],
+            'subtotal_costo' => (float) $repuesto->costo,
         ]);
 
         $this->searchRepuesto = '';
@@ -368,43 +264,29 @@ class ProductoEstadoModal extends Component
         $this->calcularTotalReparacion();
     }
 
-    public function updatedReparacionTipoCambio()
-    {
-        $this->calcularTotalReparacion();
-    }
-
     public function calcularTotalRepuestos()
     {
-        $costoTotalRepuestosBs = 0;
+        $total = 0;
 
         foreach ($this->repuestos as $index => $repuesto) {
             $costo = is_numeric($repuesto['costo']) ? (float) $repuesto['costo'] : 0;
-            $cantidad = is_numeric($repuesto['cantidad']) ? (int) $repuesto['cantidad'] : 0;
-            if ($cantidad <= 0) {
-                $this->repuestos[$index]['cantidad'] = 1;
-                return;
-            }
-
-            $subtotalCostoRepuesto = $costo * $cantidad;
-            $this->repuestos[$index]['subtotal_costo'] = $subtotalCostoRepuesto;
-            $subtotalCostoRepuestoBs = $subtotalCostoRepuesto * $this->reparacion['tipo_cambio'];
-            $this->repuestos[$index]['subtotal_costo_bs'] = $subtotalCostoRepuestoBs;
-            $costoTotalRepuestosBs += $subtotalCostoRepuestoBs;
+            $cantidad = max(1, (int) $repuesto['cantidad']);
+            $this->repuestos[$index]['cantidad'] = $cantidad;
+            $this->repuestos[$index]['subtotal_costo'] = round($costo * $cantidad, 2);
+            $total += $costo * $cantidad;
         }
-        $this->reparacion['costo_repuestos'] = $costoTotalRepuestosBs;
+
+        $this->reparacion['costo_repuestos'] = round($total, 2);
         $this->calcularTotalReparacion();
     }
 
+    /** Todo en Bs: costo_total = mano de obra del tecnico + repuestos. */
     public function calcularTotalReparacion()
     {
-        $costo = floatval($this->reparacion['costo'] ?? 0);
-        $costo_repuestos = floatval($this->reparacion['costo_repuestos'] ?? 0);
-        $tipo_cambio = floatval($this->reparacion['tipo_cambio'] ?? 0);
-        $costo_usd = $tipo_cambio > 0 ? $costo / $tipo_cambio : 0;
-        $costo_repuestos_usd = $tipo_cambio > 0 ? $costo_repuestos / $tipo_cambio : 0;
-        $costo_total = $costo_usd + $costo_repuestos_usd;
-        $this->reparacion['costo_total'] = $costo_total;
-        $this->reparacion['costo_total_bs'] = $costo + $costo_repuestos;
+        $this->reparacion['costo_total'] = round(
+            (float) ($this->reparacion['costo'] ?? 0) + (float) ($this->reparacion['costo_repuestos'] ?? 0),
+            2
+        );
     }
 
     public function eliminarRepuesto($index)
@@ -414,19 +296,7 @@ class ProductoEstadoModal extends Component
         $this->calcularTotalRepuestos();
     }
 
-    /**
-     * Que el modal siga teniendo un producto con el que trabajar.
-     *
-     * Los cuatro metodos de guardado hacen reset() al terminar, que deja
-     * $producto en null. Una segunda peticion sobre ese estado -- un boton que
-     * quedo vivo, un reintento que llega tarde-- reventaba con "call to a
-     * member function refresh() on null" y el usuario veia la pantalla de
-     * error de Laravel en lugar de un aviso.
-     */
-    /**
-     * La nota con la que el producto esta en Fuera o Transito: la ultima fila
-     * de la bitacora con el evento de su estado actual.
-     */
+    /** La ultima nota con el evento del estado actual (Fuera, Roto, Reserva). */
     protected function notaVigente(): ?Bitacora
     {
         if (!$this->producto) {
@@ -440,13 +310,18 @@ class ProductoEstadoModal extends Component
             ->first();
     }
 
+    /**
+     * Que el modal siga teniendo un producto con el que trabajar: los metodos
+     * de guardado hacen reset() al terminar, y un reintento tardio llegaria con
+     * $producto en null.
+     */
     private function productoEnPantalla(): bool
     {
         if ($this->producto) {
             return true;
         }
 
-        toastr()->info('Esta ventana ya se cerro. Vuelve a abrirla para ver como quedo el producto.');
+        toastr()->info('Esta ventana ya se cerró. Vuelve a abrirla para ver cómo quedó el producto.');
         $this->dispatch('refreshProductoTable');
 
         return false;
@@ -458,256 +333,125 @@ class ProductoEstadoModal extends Component
             return;
         }
 
-        $stock = new StockRepuestoService();
+        if (in_array($this->estado, ProductoEstado::soloPorDocumento(), true)) {
+            throw ValidationException::withMessages(['estado' => 'Ese estado lo pone una venta. Usa «Vender».']);
+        }
+
+        $stock = app(StockService::class);
         $estados = app(EstadoProductoService::class);
 
-        // Un cambio de estado de verdad, o solo una correccion de los datos del
-        // estado en que ya esta: reabrir un producto en Fuera para arreglarle la
-        // descripcion no mueve nada y no merece fila nueva de historial.
+        // Un cambio de estado de verdad, o solo una correccion de la nota del
+        // estado en que ya esta.
         $esTransicion = $this->estadoOrigen !== $this->estado;
 
-        // El reintento de la unica rama que crea documento. Las otras las cubre
-        // la precondicion del servicio, que al encontrar el producto ya en el
-        // estado destino rechaza con un mensaje que lo nombra.
-        if ($this->estado == ProductoEstado::Vendido->value && $ya = $this->yaGuardado(Venta::class)) {
-            $this->avisarYaGuardado($ya, 'venta');
-            $this->dispatch('refreshProductoTable');
-            $this->reset();
+        DB::transaction(function () use ($stock, $estados, $esTransicion) {
+            // Las ramas preparan la nota; quien la escribe es EstadoProductoService,
+            // de una sola pieza con el estado, para que no digan cosas distintas.
+            $descripcion = null;
+            $enlaces = [];
 
-            return;
-        }
+            if (in_array($this->estado, self::CON_NOTA, true)) {
+                $this->validate(['nota' => 'required|string|max:255'], ['nota.required' => 'Escribe la nota: a quién se le dio, qué le pasa o quién lo reserva.']);
 
-        try {
-            DB::transaction(function () use ($stock, $estados, $esTransicion) {
-                $user = Auth::user();
-
-                // Las ramas de abajo preparan la nota del cambio; quien la escribe
-                // es EstadoProductoService, al final y de una sola pieza con el
-                // estado, para que no puedan decir cosas distintas.
-                $descripcion = null;
-                $enlaces = [];
-
-                if ($this->estado == ProductoEstado::Fuera->value || $this->estado == ProductoEstado::Transito->value) {
-                    $this->validate([
-                        'fueraTransito.descripcion' => 'required',
-                    ]);
-
-                    // Antes esto hacia UPDATE sobre la fila de historial anterior,
-                    // y el texto que habia se perdia para siempre. Ahora corregir la
-                    // nota es un hecho mas, con su autor y su fecha.
-                    //
-                    // Se compara contra la nota de la BASE y no contra algo del
-                    // payload: guardar el modal sin tocar la nota no debe dejar una
-                    // fila repetida, y el payload no es de fiar para decidirlo.
-                    $nueva = $this->fueraTransito['descripcion'];
-
-                    if ($this->estadoOrigen !== $this->estado || $nueva !== $this->notaVigente()?->descripcion) {
-                        $descripcion = $nueva;
-                    }
+                // Corregir la nota es un hecho mas (la bitacora es inmutable). Se
+                // compara contra la nota de la BASE: guardar sin tocarla no debe
+                // dejar una fila repetida.
+                if ($esTransicion || $this->nota !== $this->notaVigente()?->descripcion) {
+                    $descripcion = $this->nota;
                 }
-
-                if ($this->estado == ProductoEstado::Vendido->value) {
-                    $this->validate([
-                        'vendido.precio' => 'required',
-                        'vendido.subtotal' => 'required',
-                        'vendido.tipo_cambio' => 'required',
-                        'vendido.subtotal_bs' => 'required',
-                        'vendido.garantia_meses' => 'required',
-                        'vendido.garantia_fecha_exp' => 'required',
-                        'vendido.cliente' => 'nullable',
-                    ]);
-
-                    $cliente = isset($this->vendido['cliente']) ? $this->vendido['cliente'] : null;
-                    $venta = Venta::create([
-                        'subtotal' => $this->vendido['subtotal'],
-                        'total' => $this->vendido['subtotal'],
-                        'tipo_cambio' => $this->vendido['tipo_cambio'],
-                        'total_bs' => $this->vendido['subtotal_bs'],
-                        'cliente' => $cliente,
-                        'cliente_id' => $this->vendido['cliente_id'] ?? null,
-                        'user_id' => $user->id,
-                        'sucursal_id' => $this->producto->sucursal_id
-                    ] + $this->datosDeIdempotencia());
-
-                    $ventaProducto = VentaProducto::create([
-                        'venta_id' => $venta->id,
-                        'producto_id' => $this->producto->id,
-                        'costo' => $this->producto->costo_total,
-                        'precio' => $this->vendido['precio'],
-                        'descuento' => $this->vendido['descuento'],
-                        'subtotal' => $this->vendido['subtotal'],
-                        'tipo_cambio' => $this->vendido['tipo_cambio'],
-                        'subtotal_bs' => $this->vendido['subtotal_bs'],
-                        'garantia_meses' => $this->vendido['garantia_meses'],
-                        'garantia_fecha_exp' => $this->vendido['garantia_fecha_exp'],
-                        'sucursal_id' => $this->producto->sucursal_id
-                    ]);
-
-                    $descripcion = "Producto Vendido. Venta: {$venta->id}, Cliente: {$venta->nombreCliente()}, Precio: $ {$ventaProducto->subtotal}";
-                    $enlaces = ['venta_id' => $venta->id];
-
-                    // Los repuestos montados en reparaciones previas que el
-                    // vendedor decidio cobrar aparte. Dentro de la transaccion: si
-                    // falla, la venta entera revierte.
-                    $lineas = [];
-                    foreach ($this->repuestosCobrar as $id) {
-                        $lineas[] = [
-                            'producto_reparacion_repuesto_id' => $id,
-                            'precio' => $this->preciosCobrar[(string) $id] ?? 0,
-                        ];
-                    }
-                    app(RepuestosDeReparacionService::class)->registrar($venta, $lineas, $user);
-
-                    // Ya no se pisa disponible_catalogo: el catalogo excluye
-                    // Vendido con un whereNotIn explicito y su condicion es
-                    // `disponible_catalogo = 1 OR estado IN (Inventario, Oferta)`,
-                    // asi que la bandera no cambiaba nada de lo que se ve. Lo que
-                    // si hacia era borrar para siempre una casilla que el operador
-                    // marca a mano en el modal del lote, sin guardar el valor
-                    // anterior: al cancelar la venta no habia nada que restaurar.
-                }
-
-                if ($this->estado == ProductoEstado::Reparacion->value) {
-                    $this->validate([
-                        'reparacion.costo' => 'required|numeric|min:0',
-                        'reparacion.costo_repuestos' => 'required|numeric|min:0',
-                        'reparacion.tipo_cambio' => 'required|numeric|min:0',
-                        'reparacion.costo_total' => 'required|numeric|min:0',
-                        'reparacion.costo_total_bs' => 'required|numeric|min:0',
-                        'reparacion.tecnico_id' => 'required',
-                        'reparacion.fecha_entrega' => 'required',
-                        'reparacion.garantia_tecnico' => 'required',
-                        'reparacion.pagado' => 'required',
-                    ]);
-
-                    // Igual que el historial de Fuera: el id es del payload, asi
-                    // que la reparacion tiene que ser de este producto.
-                    $productoReparacion = isset($this->reparacion['id'])
-                        ? ProductoReparacion::whereKey($this->reparacion['id'])
-                            ->where('producto_id', $this->producto->id)
-                            ->first()
-                        : null;
-
-                    if ($productoReparacion) {
-                        $productoReparacion->update([
-                            'tecnico_id' => $this->reparacion['tecnico_id'],
-                            'costo' => $this->reparacion['costo'],
-                            'costo_repuestos' => $this->reparacion['costo_repuestos'],
-                            'tipo_cambio' => $this->reparacion['tipo_cambio'],
-                            'costo_total' => $this->reparacion['costo_total'],
-                            'costo_total_bs' => $this->reparacion['costo_total_bs'],
-                            'repuestos_tecnico' => isset($this->reparacion['repuestos_tecnico']) ? $this->reparacion['repuestos_tecnico'] : null,
-                            'repuestos_propios' => isset($this->reparacion['repuestos_propios']) ? $this->reparacion['repuestos_propios'] : null,
-                            'repuestos_devolver' => isset($this->reparacion['repuestos_devolver']) ? $this->reparacion['repuestos_devolver'] : null,
-                            'fecha_entrega' => $this->reparacion['fecha_entrega'],
-                            'garantia_tecnico' => $this->reparacion['garantia_tecnico'],
-                            'pagado' => $this->reparacion['pagado'],
-                        ]);
-                    } else {
-                        $tecnico = Tecnicos::find($this->reparacion['tecnico_id']);
-
-                        $productoReparacion = ProductoReparacion::create([
-                            'tecnico_id' => $tecnico->id,
-                            'producto_id' => $this->producto->id,
-                            'costo' => $this->reparacion['costo'],
-                            'costo_repuestos' => $this->reparacion['costo_repuestos'],
-                            'tipo_cambio' => $this->reparacion['tipo_cambio'],
-                            'costo_total' => $this->reparacion['costo_total'],
-                            'costo_total_bs' => $this->reparacion['costo_total_bs'],
-                            'repuestos_tecnico' => isset($this->reparacion['repuestos_tecnico']) ? $this->reparacion['repuestos_tecnico'] : null,
-                            'repuestos_propios' => isset($this->reparacion['repuestos_propios']) ? $this->reparacion['repuestos_propios'] : null,
-                            'repuestos_devolver' => isset($this->reparacion['repuestos_devolver']) ? $this->reparacion['repuestos_devolver'] : null,
-                            'fecha_entrega' => $this->reparacion['fecha_entrega'],
-                            'garantia_tecnico' => $this->reparacion['garantia_tecnico'],
-                            'pagado' => $this->reparacion['pagado'],
-                        ]);
-
-                        // Ordenado por repuesto_id para no bloquear en InnoDB.
-                        foreach (collect($this->repuestos)->sortBy('repuesto_id') as $reparacionRepuesto) {
-                            $repuesto = Repuesto::find($reparacionRepuesto['repuesto_id']);
-
-                            ProductoReparacionRepuesto::create([
-                                'producto_reparacion_id' => $productoReparacion->id,
-                                'repuesto_id' => $repuesto->id,
-                                // Congelada: de aqui salio la pieza, y es donde
-                                // volvera si manana se quita esta linea.
-                                'sucursal_id' => $this->sucursalRepuestos,
-                                'costo' => $reparacionRepuesto['costo'],
-                                'cantidad' => $reparacionRepuesto['cantidad'],
-                                'subtotal_costo' => $reparacionRepuesto['subtotal_costo'],
-                                'subtotal_costo_bs' => $reparacionRepuesto['subtotal_costo_bs'],
-                            ]);
-
-                            $stock->retirar(
-                                $repuesto->id,
-                                $this->sucursalRepuestos,
-                                (int) $reparacionRepuesto['cantidad'],
-                            );
-                        }
-
-                        $stock->recalcularTotales();
-
-                        $descripcion = "Producto en reparacion con el tecnico {$tecnico->nombre}";
-                        $enlaces = ['producto_reparacion_id' => $productoReparacion->id];
-
-                    }
-                    $this->producto->refresh();
-                    $this->producto->recalcularCosto();
-                }
-
-                if ($this->estado == ProductoEstado::Roto->value) {
-                    $descripcion = "Producto roto";
-                }
-
-                // Inventario y Oferta comparten rama: son el mismo estado de cara a
-                // la venta y los dos dejan su fila de historial.
-                if (in_array($this->estado, ProductoEstado::disponibles(), true)) {
-                    $descripcion = $this->estado === ProductoEstado::Oferta->value
-                        ? 'Producto puesto en oferta'
-                        : 'Producto movido a inventario';
-                }
-
-                if ($esTransicion) {
-                    // Bloquea la fila, exige que siga en $estadoOrigen, comprueba el
-                    // permiso del estado destino y escribe estado e historial de una
-                    // pieza. Aqui si se exige el permiso: el usuario ELIGIO el estado
-                    // de un select que ya esta filtrado por permisos, asi que la
-                    // escritura tiene que coincidir con lo que ofrece ese select.
-                    $estados->cambiar(
-                        $this->producto->id,
-                        ProductoEstado::from($this->estadoOrigen),
-                        ProductoEstado::from($this->estado),
-                        $descripcion ?? 'Cambio de estado',
-                        $enlaces,
-                        exigirPermiso: true,
-                    );
-                } elseif ($descripcion !== null) {
-                    // No se mueve de estado pero queda nota: p. ej. un producto en
-                    // Fuera sin fila previa que editar.
-                    Bitacora::registrar($this->producto, $this->estado, $descripcion, $enlaces);
-                }
-            });
-        } catch (QueryException $e) {
-            // Dos peticiones con la misma clave: la otra commiteo y el indice
-            // nos rechazo. Nuestra transaccion ya revirtio entera.
-            if ($this->esClaveDuplicada($e) && $ya = $this->yaGuardado(Venta::class)) {
-                $this->avisarYaGuardado($ya, 'venta');
-                $this->dispatch('refreshProductoTable');
-                $this->reset();
-
-                return;
             }
 
-            throw $e;
-        }
+            if ($this->estado == ProductoEstado::Reparacion->value) {
+                $this->guardarReparacion($stock, $descripcion, $enlaces);
+            }
 
-        // Relectura: el estado lo escribio el servicio sobre su propia copia
-        // bloqueada, asi que el modelo que tiene el componente quedo atras.
-        $this->producto->refresh();
+            if ($this->estado == ProductoEstado::Inventario->value) {
+                $descripcion = 'Producto movido a inventario';
+            }
+
+            if ($esTransicion) {
+                // Aqui SI se exige el permiso: el usuario ELIGIO el estado de un
+                // select ya filtrado por permisos.
+                $estados->cambiar(
+                    $this->producto->id,
+                    ProductoEstado::from($this->estadoOrigen),
+                    ProductoEstado::from($this->estado),
+                    $descripcion ?? 'Cambio de estado',
+                    $enlaces,
+                    exigirPermiso: true,
+                );
+            } elseif ($descripcion !== null) {
+                // No se mueve de estado pero queda nota.
+                Bitacora::registrar($this->producto, $this->estado, $descripcion, $enlaces);
+            }
+        });
 
         $this->dispatch('refreshProductoTable');
         toastr()->success('Estado actualizado exitosamente');
         $this->reset();
+    }
+
+    private function guardarReparacion(StockService $stock, ?string &$descripcion, array &$enlaces): void
+    {
+        $this->calcularTotalReparacion();
+        $this->validate([
+            'reparacion.costo' => 'required|numeric|min:0',
+            'reparacion.costo_repuestos' => 'required|numeric|min:0',
+            'reparacion.tecnico_id' => 'required',
+            'reparacion.fecha_entrega' => 'required',
+            'sucursalRepuestos' => count($this->repuestos) > 0 && empty($this->reparacion['id']) ? 'required|exists:sucursales,id' : 'nullable',
+        ], [
+            'reparacion.tecnico_id.required' => 'Elige el técnico.',
+            'sucursalRepuestos.required' => 'Elige de qué sucursal salen las piezas.',
+        ]);
+
+        $datos = [
+            'tecnico_id' => $this->reparacion['tecnico_id'],
+            'costo' => $this->reparacion['costo'],
+            'costo_repuestos' => $this->reparacion['costo_repuestos'],
+            'costo_total' => $this->reparacion['costo_total'],
+            'repuestos_tecnico' => $this->reparacion['repuestos_tecnico'] ?? null,
+            'repuestos_propios' => $this->reparacion['repuestos_propios'] ?? null,
+            'repuestos_devolver' => $this->reparacion['repuestos_devolver'] ?? null,
+            'fecha_entrega' => $this->reparacion['fecha_entrega'],
+            'garantia_tecnico' => (bool) ($this->reparacion['garantia_tecnico'] ?? false),
+            'pagado' => (bool) ($this->reparacion['pagado'] ?? false),
+        ];
+
+        // El id es del payload: la reparacion tiene que ser de este producto.
+        $productoReparacion = isset($this->reparacion['id'])
+            ? ProductoReparacion::whereKey($this->reparacion['id'])->where('producto_id', $this->producto->id)->first()
+            : null;
+
+        if ($productoReparacion) {
+            $productoReparacion->update($datos);
+        } else {
+            $tecnico = Tecnicos::findOrFail($this->reparacion['tecnico_id']);
+            $productoReparacion = ProductoReparacion::create($datos + ['producto_id' => $this->producto->id]);
+
+            // Ordenado por repuesto_id para no bloquear en InnoDB.
+            foreach (collect($this->repuestos)->sortBy('repuesto_id') as $linea) {
+                ProductoReparacionRepuesto::create([
+                    'producto_reparacion_id' => $productoReparacion->id,
+                    'repuesto_id' => $linea['repuesto_id'],
+                    // Congelada: de aqui salio la pieza, y es donde volvera.
+                    'sucursal_id' => $this->sucursalRepuestos,
+                    'costo' => $linea['costo'],
+                    'cantidad' => $linea['cantidad'],
+                    'subtotal_costo' => $linea['subtotal_costo'],
+                ]);
+
+                $stock->retirar(ArticuloTipo::Repuesto, (int) $linea['repuesto_id'], (int) $this->sucursalRepuestos, (int) $linea['cantidad']);
+            }
+
+            $stock->recalcularTotales();
+
+            $descripcion = "Producto en reparacion con el tecnico {$tecnico->nombre}";
+            $enlaces = ['producto_reparacion_id' => $productoReparacion->id];
+        }
+
+        $this->producto->refresh();
+        $this->producto->recalcularCosto();
     }
 
     public function finalizarReparacion()
@@ -719,95 +463,74 @@ class ProductoEstadoModal extends Component
         $estados = app(EstadoProductoService::class);
 
         DB::transaction(function () use ($estados) {
-            // La reparacion tiene que ser de ESTE producto: el id llega en un
-            // array publico y #[Locked] no protege sus claves.
+            // La reparacion tiene que ser de ESTE producto.
             $productoReparacion = ProductoReparacion::whereKey($this->reparacion['id'] ?? null)
                 ->where('producto_id', $this->producto->id)
                 ->first();
 
             if (!$productoReparacion) {
-                throw ValidationException::withMessages([
-                    'detalles' => 'Esa reparacion no es de este producto. Recarga la pantalla.',
-                ]);
+                throw ValidationException::withMessages(['detalles' => 'Esa reparación no es de este producto. Recarga la pantalla.']);
             }
 
-            $productoReparacion->update([
-                'estado' => 'Terminado',
-                'fecha_recogida' => now()->format('Y-m-d'),
-            ]);
+            $productoReparacion->update(['estado' => 'Terminado', 'fecha_recogida' => now()->format('Y-m-d')]);
 
             // Precondicion: si otro ya lo saco de Reparacion, esto no se repite.
             $estados->cambiar(
                 $this->producto->id,
                 ProductoEstado::Reparacion,
                 ProductoEstado::Inventario,
-                "Reparacion finalizada con el tecnico {$productoReparacion->tecnico->nombre}",
+                "Reparacion finalizada con el tecnico {$productoReparacion->tecnico?->nombre}",
                 ['producto_reparacion_id' => $productoReparacion->id],
             );
         });
 
-        $this->producto->refresh();
-
         $this->dispatch('refreshProductoTable');
-        toastr()->success('Reparacion finalizada exitosamente');
+        toastr()->success('Reparación finalizada exitosamente');
         $this->reset();
     }
 
-    public function finalizarFueraTransito()
+    /** El equipo que salio del local vuelve: Fuera -> Inventario. */
+    public function finalizarFuera()
     {
         if (!$this->productoEnPantalla()) {
             return;
         }
 
-        $estados = app(EstadoProductoService::class);
-
-        DB::transaction(function () use ($estados) {
-            // Dos origenes legitimos: el boton sale en los dos estados.
-            $estados->cambiar(
-                $this->producto->id,
-                [ProductoEstado::Fuera, ProductoEstado::Transito],
-                ProductoEstado::Inventario,
-                'Producto entregado al inventario',
-            );
-        });
-
-        $this->producto->refresh();
+        DB::transaction(fn() => app(EstadoProductoService::class)->cambiar(
+            $this->producto->id,
+            ProductoEstado::Fuera,
+            ProductoEstado::Inventario,
+            'Producto devuelto al local',
+        ));
 
         $this->dispatch('refreshProductoTable');
-        toastr()->success('Producto entregado exitosamente');
+        toastr()->success('Producto devuelto al inventario');
         $this->reset();
     }
 
+    /** Anula la linea de venta del equipo: vuelve a Inventario (AnulacionVentaService). */
     public function cancelarVenta()
     {
         if (!$this->productoEnPantalla()) {
             return;
         }
 
-        DB::transaction(function () {
-            // La venta se deduce del PRODUCTO y no del payload: $vendido es un
-            // array y #[Locked] no protege sus claves, asi que un venta_id
-            // ajeno habria anulado la venta de otro cliente. ventaProducto() es
-            // un hasOne y ahora lo respalda el indice unico de
-            // ventas_productos.producto_id, asi que no hay ambiguedad.
-            $detalle = $this->producto->ventaProducto;
+        abort_unless(Auth::user()?->can('venta.detalle.delete'), 403);
 
-            if (!$detalle) {
-                throw ValidationException::withMessages([
-                    'detalles' => 'Este producto no tiene una venta que anular. Recarga la pantalla.',
-                ]);
+        DB::transaction(function () {
+            // La linea se deduce del PRODUCTO y no del payload: un id ajeno
+            // habria anulado la venta de otro cliente.
+            $linea = $this->producto->ventaDetalle()->first();
+
+            if (!$linea) {
+                throw ValidationException::withMessages(['detalles' => 'Este producto no tiene una venta que anular. Recarga la pantalla.']);
             }
 
-            // El mismo camino que usa VentaDetalleDestroyModal: descobrar los
-            // repuestos, borrar la cabecera si era el ultimo producto y
-            // devolver el equipo al inventario con su precondicion.
-            app(AnulacionVentaService::class)->anularDetalle($detalle);
+            app(AnulacionVentaService::class)->anularLinea($linea);
         });
 
-        $this->producto->refresh();
-
         $this->dispatch('refreshProductoTable');
-        toastr()->success('Venta cancelada exitosamente');
+        toastr()->success('Venta del equipo anulada: vuelve al inventario.');
         $this->reset();
     }
 

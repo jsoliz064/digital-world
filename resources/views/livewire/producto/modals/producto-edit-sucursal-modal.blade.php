@@ -28,7 +28,7 @@
                 @else
                     <div class="mb-4">
                         <x-label for="sucursal1_id" value="Sucursal Origen:" />
-                        <x-input type="text" value="{{ $sucursal1->nombre }}" disabled class="w-full" />
+                        <x-input type="text" value="{{ $sucursal1?->nombre }}" disabled class="w-full" />
                     </div>
                 @endif
 
@@ -46,23 +46,31 @@
                             @endforeach
                         </select>
                         <x-input-error for="sucursal2_id" class="mt-1" />
+                        <x-input-error for="productos" class="mt-1" />
                     </div>
                 @else
                     <div class="mb-4">
                         <x-label for="sucursal2_id" value="Sucursal Destino:" />
-                        <x-input type="text" value="{{ $sucursal2->nombre }}" disabled class="w-full" />
+                        <x-input type="text" value="{{ $sucursal2?->nombre }}" disabled class="w-full" />
+                        <x-input-error for="productos" class="mt-1" />
                     </div>
                 @endif
 
 
                 @if ($sucursal1 != null && $sucursal2 != null)
                     <div class="mb-4 relative" wire:ignore.self>
-                        <label class="block text-sm font-medium text-gray-700">Buscar IMEI</label>
-                        <input type="text"
-                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm"
-                            placeholder="Buscar IMEI..." wire:model.live.debounce.500ms="searchImei"
-                            wire:keydown.escape="$set('searchImei', '')" wire:keydown.tab="$set('searchImei', '')"
-                            autocomplete="off" />
+                        <label class="block text-sm font-medium text-gray-700">Buscar IMEI o SKU</label>
+                        {{-- Enter (pistola o camara): un IMEI o SKU exacto se agrega solo y el
+                             campo queda listo para el siguiente. --}}
+                        <div class="mt-1 flex gap-2" data-escaner>
+                            <input type="text"
+                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm"
+                                placeholder="Escanee o escriba el IMEI o SKU..." wire:model.live.debounce.500ms="searchImei"
+                                x-on:keydown.enter.prevent="$wire.elegirPorCodigo($el.value); $el.value = ''"
+                                wire:keydown.escape="$set('searchImei', '')" wire:keydown.tab="$set('searchImei', '')"
+                                autocomplete="off" />
+                            <x-boton-escaner continuo />
+                        </div>
 
                         @if (!empty($searchImei))
                             {{-- z-50, como los demas desplegables: por encima de cualquier
@@ -72,7 +80,7 @@
                                 @forelse ($filteredProductos as $producto)
                                     <li class="cursor-pointer px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
                                         wire:click="selectProducto('{{ $producto->imei }}')">
-                                        {{ $producto->imei }} - {{ $producto->modelo?->nombre }} - {{ $producto->estado }}
+                                        {{ $producto->imei }} - {{ $producto->modelo?->nombre }} - {{ \App\Enums\ProductoEstado::labelDe($producto->estado) }}
                                     </li>
                                 @empty
                                     {{-- El motivo concreto cuando lo hay: "no existe" y "esta

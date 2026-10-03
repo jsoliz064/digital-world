@@ -8,6 +8,7 @@ use App\Models\ProductoModelo;
 use App\Models\Sucursal;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\On;
+use App\Traits\EligePorCodigoTrait;
 use Livewire\Component;
 
 /**
@@ -22,6 +23,8 @@ use Livewire\Component;
  */
 class ProductoSelectorModal extends Component
 {
+    use EligePorCodigoTrait;
+
     public bool $openModal = false;
 
     public string $search = '';
@@ -67,6 +70,37 @@ class ProductoSelectorModal extends Component
         $this->reset(['search', 'filtroModelo', 'filtroSucursal', 'pagina']);
     }
 
+    /**
+     * Enter en el buscador (pistola o camara): un IMEI o SKU exacto marca ese
+     * equipo y deja el campo listo para el siguiente. El UPC no basta: es el
+     * del modelo, y deja la lista filtrada para elegir a mano.
+     */
+    public function marcarPorCodigo(?string $codigo = null): void
+    {
+        $codigo = trim((string) $codigo);
+        $this->search = $codigo;
+        $this->pagina = 1;
+
+        $productos = $this->productosQuery();
+        $producto = $this->unicoPorCodigo($productos->getCollection(), $codigo, ['imei', 'sku']);
+
+        if (!$producto) {
+            if ($codigo !== '' && $productos->total() === 0) {
+                toastr()->warning("Ningún equipo disponible coincide con «{$codigo}».");
+            }
+
+            return;
+        }
+
+        if (in_array((string) $producto->id, array_map('strval', $this->seleccionados), true)) {
+            toastr()->info('Ese equipo ya está marcado.');
+        } else {
+            $this->seleccionados[] = $producto->id;
+        }
+
+        $this->search = '';
+    }
+
     public function agregarSeleccionados(): void
     {
         $ids = array_values(array_unique(array_map('intval', $this->seleccionados)));
@@ -104,8 +138,8 @@ class ProductoSelectorModal extends Component
     {
         return Producto::query()
             ->with(['modelo:id,nombre', 'sucursal:id,nombre'])
-            // Inventario y Oferta: es lo mismo que revalida
-            // EstadoProductoService::vender() al confirmar la venta.
+            // Inventario y sin baja: es lo mismo que revalida VentaService
+            // al confirmar la venta.
             ->disponibles()
             ->when($this->excluidos, fn($q) => $q->whereNotIn('id', $this->excluidos))
             ->when($this->search !== '', function ($q) {
@@ -114,8 +148,11 @@ class ProductoSelectorModal extends Component
 
                 // Un solo cuadro para IMEI, modelo, capacidad, color y
                 // descripcion: en el mostrador no se sabe de antemano por cual
-                // de los cinco se esta buscando.
+                // de los cinco se esta buscando. El SKU y el UPC, exactos: es
+                // lo que lee la pistola.
                 $q->where(fn($sub) => $sub->where('imei', 'like', $term)
+                    ->orWhere('sku', $this->search)
+                    ->orWhere('upc', $this->search)
                     ->orWhere('descripcion', 'like', $term)
                     ->orWhere('almacenamiento', 'like', $term)
                     ->orWhere('color', 'like', $term)

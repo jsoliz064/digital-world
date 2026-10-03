@@ -16,15 +16,15 @@
                 <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
                     <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Costo Total de Inventario</h3>
                     <p class="mt-1 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        $ {{ number_format($totalInventario, 2) }}
+                        Bs {{ number_format($totalInventario, 2) }}
                     </p>
                 </div>
 
                 <div
                     class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Inventario Vendido</h3>
+                    <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Inventario a precio de venta</h3>
                     <p class="mt-1 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        $. {{ number_format($totalInventarioVendido, 2) }}
+                        Bs {{ number_format($totalInventarioVendido, 2) }}
                     </p>
                 </div>
 
@@ -41,7 +41,7 @@
                     </h3>
                     <ul class="text-sm text-gray-600 dark:text-gray-300 space-y-1">
                         @foreach (\App\Enums\ProductoEstado::cases() as $estado)
-                            @if ($estado->value !== \App\Enums\ProductoEstado::Vendido->value)
+                            @if (!in_array($estado->value, \App\Enums\ProductoEstado::vendidos(), true))
                                 <li class="flex justify-between">
                                     <span>{{ $estado->label() }}</span>
                                     <span class="font-bold">
@@ -107,6 +107,8 @@
 @livewire('cliente.modals.cliente-create-modal')
     @livewire('compra-lote.modals.compra-lote-producto-edit-modal')
     @livewire('producto.modals.producto-destroy-modal')
+    @livewire('producto.modals.producto-baja-modal')
+    @livewire('producto.modals.producto-regalos-modal')
     @livewire('producto.modals.producto-reparacion-cliente-modal')
     @livewire('producto.modals.producto-edit-sucursal-modal')
     @livewire('tecnico-producto.modals.reparacion-edit-modal')

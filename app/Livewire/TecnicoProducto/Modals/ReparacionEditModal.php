@@ -12,12 +12,17 @@ use App\Models\RepuestoCategoria;
 use App\Models\Sucursal;
 use App\Services\EstadoProductoService;
 use Illuminate\Support\Facades\DB;
+use App\Traits\EligePorCodigoTrait;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use Illuminate\Support\Facades\Auth;
 
 class ReparacionEditModal extends Component
 {
+    use EligePorCodigoTrait;
+
+    use \App\Traits\PiezasCobradasTrait;
+
     public $openModal = false;
     public $reparacionModel;
     public $reparacion = [];
@@ -73,7 +78,6 @@ class ReparacionEditModal extends Component
                 'costo' => $reparacionRepuesto->costo,
                 'cantidad' => $reparacionRepuesto->cantidad,
                 'subtotal_costo' => $reparacionRepuesto->subtotal_costo,
-                'subtotal_costo_bs' => $reparacionRepuesto->subtotal_costo_bs,
             ];
         }
 
@@ -111,11 +115,13 @@ class ReparacionEditModal extends Component
     {
         $idsExistentes = collect($this->repuestos)->pluck('repuesto_id')->toArray();
 
-        // Un accesorio no se monta en una reparacion: el filtro es
-        // incondicional y vive en un scope para que el proximo buscador que
-        // alguien escriba no se olvide de el.
-        $this->filteredRepuestos = Repuesto::soloRepuestos()->where(function ($query) use ($search) {
+        // Los accesorios viven en su propia tabla: aqui solo hay piezas. El
+        // SKU y el UPC van EXACTOS, como en el buscador de la venta: es lo que
+        // lee la pistola.
+        $this->filteredRepuestos = Repuesto::query()->where(function ($query) use ($search) {
             $query->where('nombre', 'like', '%' . $search . '%')
+                ->orWhere('sku', $search)
+                ->orWhere('upc', $search)
                 ->orWhere('fabricante', 'like', '%' . $search . '%')
                 ->orWhereHas('modelo', function ($queryModelo) use ($search) {
                     $queryModelo->where('nombre', 'like', '%' . $search . '%');
@@ -133,6 +139,29 @@ class ReparacionEditModal extends Component
             ->get();
     }
 
+    /**
+     * Enter en el buscador de repuestos (pistola o camara): un SKU/UPC exacto
+     * entre los resultados lo agrega; si no, deja la lista.
+     */
+    public function elegirRepuestoPorCodigo(?string $codigo = null): void
+    {
+        $codigo = trim((string) $codigo);
+        $this->searchRepuesto = $codigo;
+        $this->updatedSearchRepuesto($codigo);
+
+        $repuesto = $this->unicoPorCodigo($this->filteredRepuestos, $codigo, ['sku', 'upc']);
+
+        if ($repuesto) {
+            $this->selectRepuesto($repuesto->id);
+
+            return;
+        }
+
+        if ($codigo !== '' && collect($this->filteredRepuestos)->isEmpty()) {
+            toastr()->warning("Ningún repuesto coincide con «{$codigo}».");
+        }
+    }
+
     public function selectRepuesto($id)
     {
         $repuesto = Repuesto::find($id);
@@ -148,7 +177,6 @@ class ReparacionEditModal extends Component
             'costo' => $repuesto->costo,
             'cantidad' => 1,
             'subtotal_costo' => $repuesto->costo,
-            'subtotal_costo_bs' => $repuesto->costo * $this->reparacion['tipo_cambio'],
         ]);
 
         $this->searchRepuesto = '';
@@ -175,9 +203,7 @@ class ReparacionEditModal extends Component
 
             $subtotalCostoRepuesto = $costo * $cantidad;
             $this->repuestos[$index]['subtotal_costo'] = $subtotalCostoRepuesto;
-            $subtotalCostoRepuestoBs = $subtotalCostoRepuesto * $this->reparacion['tipo_cambio'];
-            $this->repuestos[$index]['subtotal_costo_bs'] = $subtotalCostoRepuestoBs;
-            $costoTotalRepuestosBs += $subtotalCostoRepuestoBs;
+            $costoTotalRepuestosBs += $subtotalCostoRepuesto;
         }
         $this->reparacion['costo_repuestos'] = $costoTotalRepuestosBs;
         $this->calcularTotalReparacion();
@@ -193,21 +219,14 @@ class ReparacionEditModal extends Component
         $this->calcularTotalReparacion();
     }
 
-    public function updatedReparacionTipoCambio()
-    {
-        $this->calcularTotalReparacion();
-    }
 
     public function calcularTotalReparacion()
     {
-        $costo = floatval($this->reparacion['costo'] ?? 0);
-        $costo_repuestos = floatval($this->reparacion['costo_repuestos'] ?? 0);
-        $tipo_cambio = floatval($this->reparacion['tipo_cambio'] ?? 0);
-        $costo_usd = $tipo_cambio > 0 ? $costo / $tipo_cambio : 0;
-        $costo_repuestos_usd = $tipo_cambio > 0 ? $costo_repuestos / $tipo_cambio : 0;
-        $costo_total = $costo_usd + $costo_repuestos_usd;
-        $this->reparacion['costo_total'] = $costo_total;
-        $this->reparacion['costo_total_bs'] = $costo + $costo_repuestos;
+        // Todo en Bs: mano de obra del tecnico + repuestos.
+        $this->reparacion['costo_total'] = round(
+            floatval($this->reparacion['costo'] ?? 0) + floatval($this->reparacion['costo_repuestos'] ?? 0),
+            2
+        );
     }
 
     public function eliminarRepuesto($index)
@@ -228,15 +247,17 @@ class ReparacionEditModal extends Component
         $this->validate([
             'reparacion.costo' => 'required|numeric|min:0',
             'reparacion.costo_repuestos' => 'required|numeric|min:0',
-            'reparacion.tipo_cambio' => 'required|numeric|min:0',
             'reparacion.costo_total' => 'required|numeric|min:0',
-            'reparacion.costo_total_bs' => 'required|numeric|min:0',
             'reparacion.fecha_entrega' => 'required',
             'reparacion.garantia_tecnico' => 'required',
             'reparacion.pagado' => 'required',
         ]);
 
-        $stock = new \App\Services\StockRepuestoService();
+        // Antes de tocar nada: una pieza ya cobrada en una venta no se quita ni
+        // cambia de cantidad (la FK de cobro va en RESTRICT).
+        $this->exigirPiezasNoCobradas();
+
+        $stock = app(\App\Services\StockService::class);
         $estados = app(EstadoProductoService::class);
 
         $reparacionGuardada = DB::transaction(function () use ($stock, $estados) {
@@ -277,6 +298,7 @@ class ReparacionEditModal extends Component
                     // lineas mas arriba este mismo metodo reasigna el equipo
                     // alli al terminar la reparacion.
                     $stock->ingresar(
+                        \App\Enums\ArticuloTipo::Repuesto,
                         $repuestoReparacion->repuesto_id,
                         $repuestoReparacion->sucursal_id,
                         (int) $repuestoReparacion->cantidad,
@@ -308,6 +330,7 @@ class ReparacionEditModal extends Component
                         // metodo, asi que no se puede copiar invertida del
                         // modulo de compras.
                         $stock->ajustarSalida(
+                        \App\Enums\ArticuloTipo::Repuesto,
                             $lineaDB->repuesto_id,
                             $lineaDB->sucursal_id,
                             (int) $lineaDB->cantidad,
@@ -318,7 +341,6 @@ class ReparacionEditModal extends Component
                             'costo' => $repuestoRaparacion['costo'],
                             'cantidad' => $repuestoRaparacion['cantidad'],
                             'subtotal_costo' => $repuestoRaparacion['subtotal_costo'],
-                            'subtotal_costo_bs' => $repuestoRaparacion['subtotal_costo_bs'],
                         ]);
                     }
                 } else {
@@ -331,10 +353,10 @@ class ReparacionEditModal extends Component
                         'costo' => $repuestoRaparacion['costo'],
                         'cantidad' => $repuestoRaparacion['cantidad'],
                         'subtotal_costo' => $repuestoRaparacion['subtotal_costo'],
-                        'subtotal_costo_bs' => $repuestoRaparacion['subtotal_costo_bs'],
                     ]);
 
                     $stock->retirar(
+                        \App\Enums\ArticuloTipo::Repuesto,
                         $repuesto->id,
                         $this->sucursalRepuestos,
                         (int) $repuestoRaparacion['cantidad'],
@@ -344,7 +366,7 @@ class ReparacionEditModal extends Component
 
             $stock->recalcularTotales();
 
-            $productoReparacion->update($this->reparacion);
+            $productoReparacion->update(collect($this->reparacion)->except(['id', 'producto_id', 'created_at', 'updated_at', 'tecnico', 'producto', 'repuestos'])->all());
 
             if ($terminaYSeMuda) {
                 // Estado e historial de una pieza, con la precondicion: si otro

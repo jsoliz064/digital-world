@@ -18,15 +18,21 @@ class ProductoIndex extends Component
     public function mount()
     {
         $this->loadResumen();
-        $productos = Producto::selectRaw("
-            costo_total,
-            case when estado = 'Roto' then costo_total + 60 else precio_vendedor end as precio_vendedor
-        ")
-            ->where('estado', '!=', ProductoEstado::Vendido->value)
-            ->get();
-        $this->totalProductos = $productos->count();
-        $this->totalInventario = $productos->sum('costo_total');
-        $this->totalInventarioVendido = $productos->sum('precio_vendedor');
+        // Lo que sigue siendo stock: ni vendido (ni a credito) ni dado de baja.
+        // Un roto se valora a su costo: antes era costo + 60, un margen fijo en
+        // USD de la importadora que en Bs no significa nada. Agregado en SQL,
+        // sin traer filas a PHP.
+        $resumen = Producto::query()
+            ->vigentes()
+            ->whereNotIn('estado', ProductoEstado::vendidos())
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('COALESCE(SUM(costo_total), 0) as costo')
+            ->selectRaw('COALESCE(SUM(CASE WHEN estado = ? THEN costo_total ELSE precio_vendedor END), 0) as venta', [ProductoEstado::Roto->value])
+            ->toBase()
+            ->first();
+        $this->totalProductos = (int) $resumen->total;
+        $this->totalInventario = (float) $resumen->costo;
+        $this->totalInventarioVendido = (float) $resumen->venta;
     }
 
     /**
@@ -47,7 +53,8 @@ class ProductoIndex extends Component
     public function loadResumen()
     {
         $conteos = Producto::query()
-            ->where('estado', '!=', ProductoEstado::Vendido->value)
+            ->vigentes()
+            ->whereNotIn('estado', ProductoEstado::vendidos())
             ->selectRaw('sucursal_id, estado, COUNT(*) as total')
             ->groupBy('sucursal_id', 'estado')
             ->get()
