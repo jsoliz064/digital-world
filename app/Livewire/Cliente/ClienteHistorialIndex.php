@@ -3,7 +3,7 @@
 namespace App\Livewire\Cliente;
 
 use App\Models\Cliente;
-use App\Models\ClienteOrden;
+use App\Models\Venta;
 use Livewire\Component;
 
 class ClienteHistorialIndex extends Component
@@ -22,19 +22,20 @@ class ClienteHistorialIndex extends Component
         // Van aqui y no en la tabla a proposito: el pie de la tabla dice "esto es
         // lo que estoy mirando"; estas tarjetas dicen "esto es lo que este cliente
         // lleva comprado". Es el mismo reparto que ProductoHistorialIndex.
-        $fila = ClienteOrden::paraCliente($this->cliente->id)
+        //
+        // Estrictamente por cliente_id: es lo unico que sigue a la persona. Una
+        // venta es una orden, con todo lo que lleve (equipos, repuestos,
+        // accesorios, los cobros de reparacion y la mano de obra).
+        $fila = Venta::where('cliente_id', $this->cliente->id)
             ->toBase()
             ->selectRaw('
                 COUNT(*) as ordenes,
-                COALESCE(SUM(total + total_repuestos), 0) as total_gastado,
-                MAX(fecha) as ultima
+                COALESCE(SUM(total), 0) as total_gastado,
+                MAX(created_at) as ultima
             ')
             ->first();
 
         $this->ordenes = (int) ($fila->ordenes ?? 0);
-        // El total suma los repuestos cobrados con un telefono: su importe va por
-        // encima del total del equipo, asi que entra en lo que el cliente pago
-        // aunque su venta enlazada no sea una orden aparte.
         $this->totalGastado = round((float) ($fila->total_gastado ?? 0), 2);
         $this->ultimaCompra = $fila->ultima ?? null;
     }

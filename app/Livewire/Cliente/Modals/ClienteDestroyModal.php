@@ -31,8 +31,7 @@ class ClienteDestroyModal extends Component
             toastr()->success('Cliente eliminado exitosamente');
             $this->reset();
         } catch (QueryException $e) {
-            // La FK de ventas.cliente_id y ventas_repuestos.cliente_id va en
-            // restrict a proposito: con nullOnDelete, borrar un cliente dejaria
+            // La FK de ventas.cliente_id va en restrict a proposito: con nullOnDelete, borrar un cliente dejaria
             // sus ventas enlazadas a nada en silencio y su historial
             // desapareceria sin aviso. 1451 = fila padre referenciada.
             if (($e->errorInfo[1] ?? null) === 1451) {

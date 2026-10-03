@@ -3,11 +3,12 @@
 namespace App\Livewire\Dashboard;
 
 use App\Enums\ProductoEstado;
+use App\Enums\ProductoTipoVenta;
 use App\Models\Producto;
 use App\Models\Venta;
-use App\Models\VentaProducto;
 use Livewire\Component;
 
+/** El tablero de inicio. Todo en Bs, sobre la venta unificada. */
 class DashboardIndex extends Component
 {
     public $ventas_dia = 0;
@@ -17,27 +18,26 @@ class DashboardIndex extends Component
     public $productos_inventario = 0;
     public $productos_oferta = 0;
     public $productos_reparacion = 0;
-
+    public $productos_reserva = 0;
+    public $productos_credito = 0;
 
     public function mount()
     {
-        // El de inventario cuenta TODO lo vendible, Oferta incluida: es la
-        // cifra que el tablero siempre mostro y no cambia por este estado. El
-        // de oferta es un subconteo de ese, no una cifra aparte que se sume.
+        // Inventario cuenta todo lo vendible; oferta es un subconteo de eso
+        // (tipo_venta = Oferta), no una cifra aparte que se sume.
         $this->productos_inventario = Producto::disponibles()->count();
-        $this->productos_oferta = Producto::where('estado', ProductoEstado::Oferta->value)->count();
-        $this->productos_reparacion = Producto::where('estado', ProductoEstado::Reparacion)->count();
+        $this->productos_oferta = Producto::disponibles()->where('tipo_venta', ProductoTipoVenta::Oferta->value)->count();
+        $this->productos_reparacion = Producto::vigentes()->where('estado', ProductoEstado::Reparacion->value)->count();
+        $this->productos_reserva = Producto::vigentes()->where('estado', ProductoEstado::Reserva->value)->count();
+        $this->productos_credito = Producto::where('estado', ProductoEstado::Credito->value)->count();
 
-        $startOfDay = now()->startOfDay();
-        $endOfDay = now()->endOfDay();
-        $startOfMonth = now()->startOfMonth();
-        $endOfMonth = now()->endOfMonth();
+        $dia = [now()->startOfDay(), now()->endOfDay()];
+        $mes = [now()->startOfMonth(), now()->endOfMonth()];
 
-        $this->ventas_dia = VentaProducto::whereBetween('created_at', [$startOfDay, $endOfDay])->sum('subtotal');
-        $this->ventas_dia_cant = VentaProducto::whereBetween('created_at', [$startOfDay, $endOfDay])->count();
-        
-        $this->ventas_mes = VentaProducto::whereBetween('created_at', [$startOfMonth, $endOfMonth])->sum('subtotal');
-        $this->ventas_mes_cant = VentaProducto::whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
+        $this->ventas_dia = (float) Venta::whereBetween('created_at', $dia)->sum('total');
+        $this->ventas_dia_cant = Venta::whereBetween('created_at', $dia)->count();
+        $this->ventas_mes = (float) Venta::whereBetween('created_at', $mes)->sum('total');
+        $this->ventas_mes_cant = Venta::whereBetween('created_at', $mes)->count();
     }
 
     public function render()

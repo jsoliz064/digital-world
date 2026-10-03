@@ -93,7 +93,7 @@ class BitacoraTable extends DataTableComponent
      * TODO filtro y TODA busqueda se aplican AQUI, nunca con ->filter() ni
      * ->searchable(): applyFilters() y applySearch() solo tocan el builder de
      * las filas, no el del pie, y el total dejaria de cuadrar con lo que se ve.
-     * Es la regla que documenta RepuestoMovimientosTable.
+     * Es la regla que documenta MovimientosStockTable.
      */
     protected function scopedQuery(): Builder
     {

@@ -91,10 +91,7 @@ class ClienteSelectorModal extends Component
             // Cuantas ordenes tiene, como subconsulta: ayuda a distinguir dos
             // fichas con el mismo nombre, que es el caso que el CI no cubre
             // cuando ninguna de las dos lo tiene.
-            ->withCount([
-                'ventas as ordenes_productos',
-                'ventasRepuestos as ordenes_repuestos' => fn($q) => $q->whereNull('venta_id'),
-            ])
+            ->withCount('ventas as ordenes')
             ->orderBy('nombre')
             // Paginacion manual: WithPagination registra `page` en el query string
             // con history:true y reescribiria la URL de la venta de fondo.

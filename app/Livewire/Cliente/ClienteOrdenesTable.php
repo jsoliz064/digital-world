@@ -2,9 +2,11 @@
 
 namespace App\Livewire\Cliente;
 
+use App\Enums\LineaTipo;
 use App\Models\Cliente;
-use App\Models\ClienteOrden;
 use App\Models\Sucursal;
+use App\Models\Venta;
+use App\Models\VentaDetalle;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
@@ -12,9 +14,14 @@ use Rappasoft\LaravelLivewireTables\Views\Column;
 use Rappasoft\LaravelLivewireTables\Views\Filters\DateFilter;
 use Rappasoft\LaravelLivewireTables\Views\Filters\MultiSelectDropdownFilter;
 
+/**
+ * Las ventas de un cliente. Antes era un modelo virtual (ClienteOrden, un UNION
+ * de ventas y ventas de repuestos); con la venta unificada una orden es una
+ * venta, lleve lo que lleve, y la tabla sale directo de `ventas`.
+ */
 class ClienteOrdenesTable extends DataTableComponent
 {
-    protected $model = ClienteOrden::class;
+    protected $model = Venta::class;
 
     public $cliente;
 
@@ -33,19 +40,11 @@ class ClienteOrdenesTable extends DataTableComponent
         $this->setTableName('ordenes');
 
         $this->setPrimaryKey('id')
-            ->setDefaultSort('fecha', 'desc')
-            ->setSearchPlaceholder('Buscar por nº de documento, vendedor o sucursal...')
-            ->setEmptyMessage('Este cliente todavía no tiene ninguna orden registrada.');
+            ->setDefaultSort('created_at', 'desc')
+            ->setSearchPlaceholder('Buscar por nº de venta, vendedor o sucursal...')
+            ->setEmptyMessage('Este cliente todavía no tiene ninguna venta registrada.');
 
-        // El paquete solo SELECTea los campos de las columnas declaradas, pero
-        // executeQuery() hace pluck('id') para los wire:key, y los format() leen
-        // tipo, referencia_id y total_repuestos.
-        $this->setAdditionalSelects([
-            'cliente_ordenes.id',
-            'cliente_ordenes.tipo',
-            'cliente_ordenes.referencia_id',
-            'cliente_ordenes.total_repuestos',
-        ]);
+        $this->setAdditionalSelects(['ventas.id']);
 
         $this->setFooterTrAttributes(fn($rows) => [
             'default' => false,
@@ -63,35 +62,35 @@ class ClienteOrdenesTable extends DataTableComponent
      */
     protected function scopedQuery(): Builder
     {
-        $query = ClienteOrden::paraCliente($this->cliente->id);
+        // Estrictamente por cliente_id: es lo unico que sigue a la persona.
+        $query = Venta::query()->where('ventas.cliente_id', $this->cliente->id);
 
-        // getAppliedFilterWithValue() devuelve el valor CRUDO del query string, asi
-        // que la whitelist se hace a mano.
+        // getAppliedFilterWithValue() devuelve el valor CRUDO del query string,
+        // asi que la whitelist se hace a mano.
         $tipos = array_values(array_intersect(
             (array) ($this->getAppliedFilterWithValue('tipo') ?? []),
-            ['Productos', 'Repuestos'],
+            LineaTipo::values(),
         ));
 
         if ($tipos !== []) {
-            $query->whereIn('cliente_ordenes.tipo', $tipos);
+            $query->whereHas('detalles', fn($q) => $q->whereIn('tipo', $tipos));
         }
 
-        // Por NOMBRE y no por id: es lo que expone el UNION.
         $sucursales = array_values(array_intersect(
-            (array) ($this->getAppliedFilterWithValue('sucursal') ?? []),
-            Sucursal::pluck('nombre')->all(),
+            array_map('intval', (array) ($this->getAppliedFilterWithValue('sucursal') ?? [])),
+            Sucursal::pluck('id')->all(),
         ));
 
         if ($sucursales !== []) {
-            $query->whereIn('cliente_ordenes.sucursal', $sucursales);
+            $query->whereIn('ventas.sucursal_id', $sucursales);
         }
 
         if ($desde = $this->fechaFiltrada('fecha_desde')) {
-            $query->whereDate('cliente_ordenes.fecha', '>=', $desde);
+            $query->whereDate('ventas.created_at', '>=', $desde);
         }
 
         if ($hasta = $this->fechaFiltrada('fecha_hasta')) {
-            $query->whereDate('cliente_ordenes.fecha', '<=', $hasta);
+            $query->whereDate('ventas.created_at', '<=', $hasta);
         }
 
         // Ninguna columna lleva ->searchable() a proposito: con 0 columnas
@@ -99,13 +98,11 @@ class ClienteOrdenesTable extends DataTableComponent
         $search = trim((string) $this->search);
 
         if ($search !== '') {
-            $query->where(function (Builder $q) use ($search) {
-                $like = '%' . $search . '%';
-                $q->where('cliente_ordenes.referencia_id', 'like', $like)
-                    ->orWhere('cliente_ordenes.tipo', 'like', $like)
-                    ->orWhere('cliente_ordenes.usuario', 'like', $like)
-                    ->orWhere('cliente_ordenes.sucursal', 'like', $like);
-            });
+            $like = '%' . $search . '%';
+            $query->where(fn(Builder $q) => $q
+                ->where('ventas.id', ltrim($search, '#'))
+                ->orWhereHas('user', fn($u) => $u->where('name', 'like', $like))
+                ->orWhereHas('sucursal', fn($s) => $s->where('nombre', 'like', $like)));
         }
 
         return $query;
@@ -126,9 +123,22 @@ class ClienteOrdenesTable extends DataTableComponent
         }
     }
 
+    /**
+     * Lo que llevo cada venta, como subconsultas escalares: una columna en el
+     * SELECT principal y cero N+1 al pintar.
+     */
     public function builder(): Builder
     {
-        return $this->scopedQuery();
+        $contar = fn(string $tipo) => VentaDetalle::query()
+            ->selectRaw('COALESCE(SUM(cantidad), 0)')
+            ->whereColumn('ventas_detalles.venta_id', 'ventas.id')
+            ->where('ventas_detalles.tipo', $tipo);
+
+        return $this->scopedQuery()->addSelect([
+            'equipos' => $contar(LineaTipo::Producto->value),
+            'repuestos' => $contar(LineaTipo::Repuesto->value),
+            'accesorios' => $contar(LineaTipo::Accesorio->value),
+        ]);
     }
 
     /**
@@ -139,13 +149,7 @@ class ClienteOrdenesTable extends DataTableComponent
     {
         return $this->totales ??= $this->scopedQuery()
             ->toBase()
-            ->selectRaw('
-                COUNT(*) as ordenes,
-                COALESCE(SUM(unidades), 0) as unidades,
-                COALESCE(SUM(total), 0) as total,
-                COALESCE(SUM(total_repuestos), 0) as total_repuestos,
-                COALESCE(SUM(total_bs), 0) as total_bs
-            ')
+            ->selectRaw('COUNT(*) as ordenes, COALESCE(SUM(total), 0) as total')
             ->first();
     }
 
@@ -154,11 +158,11 @@ class ClienteOrdenesTable extends DataTableComponent
         // Sin ->filter(): applyFilters() ignora los filtros sin callback y los
         // aplicamos en scopedQuery() para que el footer cuadre.
         return [
-            MultiSelectDropdownFilter::make('Tipo', 'tipo')
-                ->options(['Productos' => 'Teléfonos', 'Repuestos' => 'Repuestos y accesorios']),
+            MultiSelectDropdownFilter::make('Contiene', 'tipo')
+                ->options(LineaTipo::toSelectArray()->toArray()),
 
             MultiSelectDropdownFilter::make('Sucursal', 'sucursal')
-                ->options(Sucursal::orderBy('nombre')->pluck('nombre', 'nombre')->toArray()),
+                ->options(Sucursal::orderBy('nombre')->pluck('nombre', 'id')->toArray()),
 
             // DateFilter y no DateRangeFilter: este ultimo necesita flatpickr y el
             // layout no carga los assets del paquete.
@@ -170,79 +174,46 @@ class ClienteOrdenesTable extends DataTableComponent
     public function columns(): array
     {
         return [
-            Column::make('Fecha', 'fecha')
+            Column::make('Fecha', 'created_at')
                 // Callback y no sortable() a secas: sin desempate por id, dos
-                // ordenes con la misma fecha pueden saltar de pagina.
+                // ventas del mismo segundo pueden saltar de pagina.
                 ->sortable(fn(Builder $query, string $direction) => $query
-                    ->orderBy('cliente_ordenes.fecha', $direction)
-                    ->orderBy('cliente_ordenes.id', $direction))
+                    ->orderBy('ventas.created_at', $direction)
+                    ->orderBy('ventas.id', $direction))
                 ->format(fn($value) => Carbon::parse($value)->format('d/m/Y H:i'))
                 ->footer(fn($rows) => 'TOTALES'),
 
-            Column::make('Documento', 'referencia_id')
+            Column::make('Venta', 'id')
                 ->sortable()
-                ->format(function ($value, $row) {
-                    $etiqueta = $row->tipo === 'Productos' ? 'Venta' : 'Repuestos';
-
-                    return '<a href="' . $row->rutaDetalle() . '" '
-                        . 'class="font-semibold text-brand-600 hover:underline dark:text-brand-400">'
-                        . e($etiqueta) . ' #' . (int) $value . '</a>';
-                })
+                ->format(fn($value) => '<a href="' . route('ventas.detalles', $value) . '" '
+                    . 'class="font-semibold text-brand-600 hover:underline dark:text-brand-400">Venta #' . (int) $value . '</a>')
                 ->html()
-                ->footer(fn($rows) => (int) $this->getTotales()->ordenes . ' orden(es)'),
+                ->footer(fn($rows) => (int) $this->getTotales()->ordenes . ' venta(s)'),
 
-            Column::make('Tipo', 'tipo')
-                ->sortable()
-                ->format(function ($value) {
-                    // Clases literales en las dos ramas: no hay safelist.
-                    $clases = $value === 'Productos'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-purple-100 text-purple-800';
+            // Label: los conteos viven como alias del SELECT, y selectFields()
+            // cualificaria un campo normal a ventas.equipos.
+            Column::make('Contenido')
+                ->label(function ($row) {
+                    $partes = array_filter([
+                        (int) $row->equipos ? $row->equipos . ' equipo(s)' : null,
+                        (int) $row->repuestos ? $row->repuestos . ' repuesto(s)' : null,
+                        (int) $row->accesorios ? $row->accesorios . ' accesorio(s)' : null,
+                    ]);
 
-                    $texto = $value === 'Productos' ? 'Teléfonos' : 'Repuestos';
+                    return $partes ? implode(' · ', $partes) : '—';
+                }),
 
-                    return '<span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold '
-                        . $clases . '">' . e($texto) . '</span>';
-                })
-                ->html(),
-
-            Column::make('Unidades', 'unidades')
-                ->sortable()
-                ->footer(fn($rows) => (int) $this->getTotales()->unidades),
-
-            Column::make('Total ($)', 'total')
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => '$ ' . number_format((float) $this->getTotales()->total, 2)),
-
-            // Lo cobrado en piezas montadas en el equipo. En blanco cuando es
-            // cero, que es lo normal: asi la columna solo canta las ordenes que
-            // llevaron repuestos encima del telefono.
-            Column::make('Repuestos ($)', 'total_repuestos')
-                ->sortable()
-                ->format(function ($value) {
-                    if ((float) $value < 0.01) {
-                        return '<span class="text-gray-300">—</span>';
-                    }
-
-                    return '<span class="font-semibold text-green-700 dark:text-green-400">+ $ '
-                        . number_format((float) $value, 2) . '</span>';
-                })
-                ->html()
-                ->footer(fn($rows) => '$ ' . number_format((float) $this->getTotales()->total_repuestos, 2)),
-
-            Column::make('Total (Bs)', 'total_bs')
+            Column::make('Total (Bs)', 'total')
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total_bs, 2))
-                ->collapseOnTablet(),
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total, 2)),
 
-            Column::make('Vendedor', 'usuario')
+            Column::make('Vendedor', 'user.name')
                 ->sortable()
                 ->format(fn($value) => $value ?: '—')
                 ->collapseOnTablet(),
 
-            Column::make('Sucursal', 'sucursal')
+            Column::make('Sucursal', 'sucursal.nombre')
                 ->sortable()
                 ->format(fn($value) => $value ?: '—')
                 ->collapseOnTablet(),

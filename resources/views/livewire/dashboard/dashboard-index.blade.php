@@ -18,7 +18,7 @@
                     </svg>
                 </div>
                 <div class="text-right">
-                    <p class="text-2xl">USD {{ $ventas_dia }} / {{ $ventas_dia_cant }}</p>
+                    <p class="text-2xl">Bs {{ number_format($ventas_dia, 2) }} / {{ $ventas_dia_cant }}</p>
                     <p>Ventas del Dia</p>
                 </div>
             </div>
@@ -34,7 +34,7 @@
                     </svg>
                 </div>
                 <div class="text-right">
-                    <p class="text-2xl">USD {{ $ventas_mes }} / {{ $ventas_mes_cant }}</p>
+                    <p class="text-2xl">Bs {{ number_format($ventas_mes, 2) }} / {{ $ventas_mes_cant }}</p>
                     <p>Ventas del Mes</p>
                 </div>
             </div>
@@ -88,7 +88,8 @@
                 </div>
                 <div class="text-right">
                     <p class="text-2xl">{{ $productos_reparacion }}</p>
-                    <p>Productos en Reparacion</p>
+                    <p>En reparación</p>
+                    <p class="text-xs opacity-80">{{ $productos_reserva }} reservados · {{ $productos_credito }} a crédito</p>
                 </div>
             </div>
 

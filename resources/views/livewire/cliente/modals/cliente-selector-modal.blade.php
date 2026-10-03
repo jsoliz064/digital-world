@@ -36,7 +36,7 @@
                                     <td class="p-2 border dark:border-gray-600">{{ $c->ci ?: '—' }}</td>
                                     <td class="p-2 border dark:border-gray-600">{{ $c->telefono ?: '—' }}</td>
                                     <td class="p-2 border dark:border-gray-600 text-center">
-                                        {{ (int) $c->ordenes_productos + (int) $c->ordenes_repuestos }}
+                                        {{ (int) $c->ordenes }}
                                     </td>
                                     <td class="p-2 border dark:border-gray-600 text-right">
                                         @if ($esElegido)

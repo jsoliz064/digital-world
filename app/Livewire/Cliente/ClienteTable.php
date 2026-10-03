@@ -26,15 +26,11 @@ class ClienteTable extends DataTableComponent
 
     public function builder(): Builder
     {
-        // Los conteos como subconsulta y no con $row->ventas()->count() en el
-        // format: eso seria una consulta por fila. Las enlazadas se excluyen del
-        // conteo de ordenes -- no son una operacion aparte, son la misma venta al
-        // mismo cliente, el criterio que ya fijo ReporteIndex.
+        // El conteo como subconsulta y no con $row->ventas()->count() en el
+        // format: eso seria una consulta por fila. Una venta es una orden, lleve
+        // equipos, repuestos o accesorios.
         return Cliente::query()
-            ->withCount([
-                'ventas as ordenes_productos',
-                'ventasRepuestos as ordenes_repuestos' => fn($q) => $q->whereNull('venta_id'),
-            ]);
+            ->withCount('ventas as ordenes');
     }
 
     public function columns(): array
@@ -65,10 +61,10 @@ class ClienteTable extends DataTableComponent
                 ->format(fn($value) => $value ?: '<span class="text-gray-400">—</span>')
                 ->html(),
 
-            // Las dos cifras del withCount. La clave es 'id' porque el paquete
-            // exige una columna real, y el valor sale de $row.
+            // La cifra del withCount. La clave es 'id' porque el paquete exige
+            // una columna real, y el valor sale de $row.
             Column::make('Órdenes', 'id')
-                ->label(fn($row) => (int) $row->ordenes_productos + (int) $row->ordenes_repuestos)
+                ->label(fn($row) => (int) $row->ordenes)
                 ->setCustomSlug('ordenes'),
 
             Column::make('Acciones', 'id')

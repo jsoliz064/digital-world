@@ -2,8 +2,9 @@
 
 namespace App\Livewire\Reporte;
 
-use App\Enums\RepuestoTipo;
+use App\Enums\LineaTipo;
 use Carbon\Carbon;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -20,10 +21,9 @@ use Livewire\WithPagination;
  *     cada una responde lo mismo sobre su linea: que se vendio, que se compro
  *     y cuanto se gano.
  *
- * Antes las pestanas mezclaban dos criterios distintos (Ventas y Compras
- * miraban TODO el negocio mientras Repuestos y Accesorios miraban una linea),
- * asi que "Ventas" y "Repuestos" no eran comparables entre si aunque
- * estuvieran una al lado de la otra. Ahora las tres cortan por el mismo eje.
+ * Todo en Bs y sobre la venta y la compra unificadas: cada pestana es el
+ * mismo juego de consultas sobre ventas_detalles / compras_detalles filtrado
+ * por la columna generada `tipo` (LineaTipo).
  */
 class ReporteIndex extends Component
 {
@@ -38,25 +38,10 @@ class ReporteIndex extends Component
     /** Umbral a partir del cual agrupar por dia deja de ser legible. */
     private const DIAS_AVISO_AGRUPACION = 90;
 
-    /**
-     * Ganancia de celulares.
-     *
-     * El fallback del 20% NO es un adorno heredado: hoy 10 de las 12 lineas de
-     * `ventas_productos` tienen `costo = 0` (hueco de captura). Sin el, esas
-     * ventas se reportarian con coste cero y la ganancia de celulares saltaria
-     * de ~4.020 a ~19.816, fingiendo un margen del 92%.
-     *
-     * Los repuestos NO lo necesitan, y NO hay que anadirselo. Ahi el unico
-     * caso de `subtotal_costo = 0` son las lineas cobradas junto a un telefono
-     * (las que llevan `producto_reparacion_repuesto_id`), y ese cero es
-     * deliberado: el costo de esa pieza ya viaja dentro de
-     * `ventas_productos.costo` del equipo. Inventarle un costo aqui lo
-     * restaria dos veces.
-     */
-    private const GANANCIA_CELULARES =
-        'SUM(CASE WHEN vp.costo = 0 THEN vp.subtotal - vp.subtotal * 0.8 ELSE vp.subtotal - vp.costo END)';
+    /** Descuento de cabecera repartido a prorrata entre las lineas de la venta. */
+    private const DESCUENTO_PRORRATEADO = 'SUM(d.subtotal / NULLIF(v.subtotal, 0) * v.descuento)';
 
-    /** Ingreso neto de repuestos por periodo: bruto menos descuento prorrateado. */
+    /** Ingreso neto por periodo: bruto menos descuento prorrateado. */
     private const INGRESO_NETO = 'SUM(d.subtotal) - SUM(d.subtotal / NULLIF(v.subtotal, 0) * v.descuento)';
 
     public $startDate;
@@ -240,19 +225,19 @@ class ReporteIndex extends Component
         return $denominador != 0 ? round($numerador / $denominador, 2) : 0;
     }
 
-    private function esCelulares(): bool
-    {
-        return $this->tab === 'celulares';
-    }
-
-    /** Tipo de articulo que impone la pestana; null en Celulares. */
-    private function tipoTab(): ?string
+    /** El tipo de linea (ventas_detalles.tipo / compras_detalles.tipo) de la pestana. */
+    private function tipoTab(): string
     {
         return match ($this->tab) {
-            'repuestos' => RepuestoTipo::Repuesto->value,
-            'accesorios' => RepuestoTipo::Accesorio->value,
-            default => null,
+            'repuestos' => LineaTipo::Repuesto->value,
+            'accesorios' => LineaTipo::Accesorio->value,
+            default => LineaTipo::Producto->value,
         };
+    }
+
+    private function esCelulares(): bool
+    {
+        return $this->tipoTab() === LineaTipo::Producto->value;
     }
 
     private function avisoAgrupacion(): ?string
@@ -265,70 +250,49 @@ class ReporteIndex extends Component
     }
 
     // ==================================================================
-    // Agregados
+    // Agregados: UNA familia de consultas, filtrada por el tipo de la linea
     // ==================================================================
 
     /**
-     * Ventas de celulares. Se filtra por `ventas.created_at` (la fecha de la
-     * venta); antes unas cifras usaban esa y otras `ventas_productos.created_at`.
+     * Las lineas de venta del periodo. Se filtra por `ventas.created_at` (la
+     * fecha de la venta) y por `d.tipo`, la columna generada desde las FK: no
+     * puede contradecir al articulo de la linea.
      */
-    private function agregadoVentasCelulares($desde, $hasta): object
+    private function lineasVenta($desde, $hasta, ?string $tipo = null): Builder
     {
-        $fila = DB::table('ventas_productos as vp')
-            ->join('ventas as v', 'v.id', '=', 'vp.venta_id')
+        return DB::table('ventas_detalles as d')
+            ->join('ventas as v', 'v.id', '=', 'd.venta_id')
             ->whereBetween('v.created_at', [$desde, $hasta])
-            ->selectRaw('
-                COALESCE(SUM(vp.subtotal), 0) AS ingreso,
-                COALESCE(' . self::GANANCIA_CELULARES . ', 0) AS ganancia,
-                COUNT(vp.id) AS unidades,
-                COUNT(DISTINCT v.id) AS operaciones')
-            ->first();
-
-        $ingreso = round((float) $fila->ingreso, 2);
-        $ganancia = round((float) $fila->ganancia, 2);
-
-        return (object) [
-            'ingreso' => $ingreso,
-            // El costo se deriva de la ganancia, no al reves: con el fallback
-            // del 20% el "costo" de una venta sin costo capturado es estimado.
-            'costo' => round($ingreso - $ganancia, 2),
-            'unidades' => (int) $fila->unidades,
-            'operaciones' => (int) $fila->operaciones,
-            'ganancia' => $ganancia,
-        ];
+            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo));
     }
 
-    private function agregadoComprasCelulares($desde, $hasta): object
+    /** Las lineas de compra del periodo, por la fecha de la compra. */
+    private function lineasCompra($desde, $hasta, ?string $tipo = null): Builder
     {
-        $fila = DB::table('compras')
-            ->whereBetween('fecha_compra', [$desde, $hasta])
-            ->selectRaw('
-                COALESCE(SUM(costo_total), 0) AS costo,
-                COALESCE(SUM(cantidad_total), 0) AS unidades,
-                COUNT(*) AS operaciones')
-            ->first();
-
-        return (object) [
-            'costo' => round((float) $fila->costo, 2),
-            'unidades' => (int) $fila->unidades,
-            'operaciones' => (int) $fila->operaciones,
-        ];
+        return DB::table('compras_detalles as d')
+            ->join('compras as c', 'c.id', '=', 'd.compra_id')
+            ->whereBetween('c.fecha', [$desde, $hasta])
+            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo));
     }
 
     /**
-     * Ventas de repuestos/accesorios por tipo, con el descuento de cabecera
-     * prorrateado. Se lee `d.tipo` (congelado en la linea) y no el del catalogo,
-     * para que reclasificar un articulo no reescriba el pasado.
+     * Ventas por tipo de linea, con el descuento de cabecera prorrateado entre
+     * TODAS las lineas de la venta (equipos, repuestos y accesorios).
+     *
+     * Sin el viejo respaldo del 20% para celulares con costo 0: existia por
+     * datos de la importadora capturados sin costo. Aqui la linea congela el
+     * costo_total del equipo al vender, asi que un costo 0 es un dato real (o
+     * un error que debe verse), no algo que inventar.
+     *
+     * Los cobros de repuestos de una reparacion son lineas tipo Repuesto con
+     * costo 0 a proposito: la pieza ya viaja dentro del costo del equipo.
      */
-    private function agregadoVentasRepuestos($desde, $hasta, ?string $tipo = null): object
+    private function agregadoVentas($desde, $hasta, ?string $tipo = null): object
     {
-        $fila = DB::table('ventas_repuestos_detalles as d')
-            ->join('ventas_repuestos as v', 'v.id', '=', 'd.venta_repuesto_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo))
+        $fila = $this->lineasVenta($desde, $hasta, $tipo)
             ->selectRaw('
                 COALESCE(SUM(d.subtotal), 0) AS bruto,
-                COALESCE(SUM(d.subtotal / NULLIF(v.subtotal, 0) * v.descuento), 0) AS descuento,
+                COALESCE(' . self::DESCUENTO_PRORRATEADO . ', 0) AS descuento,
                 COALESCE(SUM(d.subtotal_costo), 0) AS costo,
                 COALESCE(SUM(d.cantidad), 0) AS unidades,
                 COUNT(DISTINCT v.id) AS operaciones')
@@ -346,12 +310,9 @@ class ReporteIndex extends Component
         ];
     }
 
-    private function agregadoComprasRepuestos($desde, $hasta, ?string $tipo = null): object
+    private function agregadoCompras($desde, $hasta, ?string $tipo = null): object
     {
-        $fila = DB::table('compras_repuestos_detalles as d')
-            ->join('compras_repuestos as c', 'c.id', '=', 'd.compra_repuesto_id')
-            ->whereBetween('c.fecha_compra', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo))
+        $fila = $this->lineasCompra($desde, $hasta, $tipo)
             ->selectRaw('
                 COALESCE(SUM(d.subtotal), 0) AS costo,
                 COALESCE(SUM(d.cantidad), 0) AS unidades,
@@ -366,14 +327,41 @@ class ReporteIndex extends Component
     }
 
     /**
+     * Perdidas del periodo: equipos dados de baja (a su costo_total) y unidades
+     * de stock dadas de baja (al costo congelado en stock_bajas). Ninguna pasa
+     * por una venta, asi que sin esta tarjeta serian invisibles en el reporte.
+     */
+    private function perdidas($desde, $hasta, ?string $tipo = null): float
+    {
+        $total = 0.0;
+
+        if ($tipo === null || $tipo === LineaTipo::Producto->value) {
+            $total += (float) DB::table('productos')
+                ->whereBetween('dado_de_baja_at', [$desde, $hasta])
+                ->sum('costo_total');
+        }
+
+        $articulo = $tipo ? LineaTipo::from($tipo)->articulo() : null;
+
+        if ($tipo === null || $articulo) {
+            $total += (float) DB::table('stock_bajas')
+                ->whereBetween('created_at', [$desde, $hasta])
+                ->when($articulo, fn($q) => $q->whereNotNull($articulo->columna()))
+                ->sum(DB::raw('cantidad * costo'));
+        }
+
+        return round($total, 2);
+    }
+
+    /**
      * Mano de obra del periodo. No pertenece a ningun articulo, asi que no se
      * reparte entre lineas ni cabe en ninguna pestana: es la razon de que el
-     * resumen general exista. Suma al ingreso Y al costo, por lo que se cancela
-     * en la ganancia y el total sigue cuadrando con las cabeceras.
+     * resumen general exista. Suma al ingreso Y al costo de la venta, por lo
+     * que se cancela en la ganancia y el total sigue cuadrando con ventas.total.
      */
     private function manoObra($desde, $hasta): float
     {
-        return round((float) DB::table('ventas_repuestos')
+        return round((float) DB::table('ventas')
             ->whereBetween('created_at', [$desde, $hasta])
             ->sum('mano_obra'), 2);
     }
@@ -399,42 +387,33 @@ class ReporteIndex extends Component
         ]);
     }
 
-    /** @return array{ingreso:float,ganancia:float,inversion:float,manoObra:float,unidades:int,operaciones:int,desglose:array} */
     private function totalesNegocio($desde, $hasta): array
     {
-        $cel = $this->agregadoVentasCelulares($desde, $hasta);
-        $rep = $this->agregadoVentasRepuestos($desde, $hasta, RepuestoTipo::Repuesto->value);
-        $acc = $this->agregadoVentasRepuestos($desde, $hasta, RepuestoTipo::Accesorio->value);
+        $porTipo = [];
+        foreach (LineaTipo::cases() as $caso) {
+            $porTipo[$caso->value] = $this->agregadoVentas($desde, $hasta, $caso->value);
+        }
+
+        $todo = $this->agregadoVentas($desde, $hasta);
+        $compras = $this->agregadoCompras($desde, $hasta);
         $mo = $this->manoObra($desde, $hasta);
 
-        $cCel = $this->agregadoComprasCelulares($desde, $hasta);
-        $cRep = $this->agregadoComprasRepuestos($desde, $hasta, RepuestoTipo::Repuesto->value);
-        $cAcc = $this->agregadoComprasRepuestos($desde, $hasta, RepuestoTipo::Accesorio->value);
-
-        // Operaciones de repuestos: una venta puede llevar repuestos Y
-        // accesorios, asi que sumar las de cada tipo la contaria dos veces.
-        //
-        // Las enlazadas a una venta de telefono se excluyen: no son una
-        // operacion aparte, son la misma venta al mismo cliente, ya contada en
-        // las de celulares. Sin esto el ticket promedio baja solo.
-        $opsRepuestos = (int) DB::table('ventas_repuestos')
-            ->whereBetween('created_at', [$desde, $hasta])
-            ->whereNull('venta_id')
-            ->count();
-
+        // Las operaciones se cuentan sobre TODAS las lineas a la vez: una venta
+        // con un equipo y un cargador es UNA operacion, no dos.
         return [
-            'ingreso' => round($cel->ingreso + $rep->ingreso + $acc->ingreso + $mo, 2),
+            'ingreso' => round($todo->ingreso + $mo, 2),
             // La mano de obra se cancela: entra en el ingreso y en el costo.
-            'ganancia' => round($cel->ganancia + $rep->ganancia + $acc->ganancia, 2),
-            'inversion' => round($cCel->costo + $cRep->costo + $cAcc->costo, 2),
+            'ganancia' => $todo->ganancia,
+            'inversion' => $compras->costo,
+            'perdidas' => $this->perdidas($desde, $hasta),
             'manoObra' => $mo,
-            'unidades' => $cel->unidades + $rep->unidades + $acc->unidades,
-            'unidadesCompradas' => $cCel->unidades + $cRep->unidades + $cAcc->unidades,
-            'operaciones' => $cel->operaciones + $opsRepuestos,
+            'unidades' => $todo->unidades,
+            'unidadesCompradas' => $compras->unidades,
+            'operaciones' => $todo->operaciones,
             'desglose' => [
-                ['etiqueta' => 'Celulares', 'monto' => $cel->ingreso],
-                ['etiqueta' => 'Repuestos', 'monto' => $rep->ingreso],
-                ['etiqueta' => 'Accesorios', 'monto' => $acc->ingreso],
+                ['etiqueta' => 'Celulares', 'monto' => $porTipo[LineaTipo::Producto->value]->ingreso],
+                ['etiqueta' => 'Repuestos', 'monto' => $porTipo[LineaTipo::Repuesto->value]->ingreso],
+                ['etiqueta' => 'Accesorios', 'monto' => $porTipo[LineaTipo::Accesorio->value]->ingreso],
                 ['etiqueta' => 'Mano de obra', 'monto' => $mo],
             ],
         ];
@@ -445,9 +424,8 @@ class ReporteIndex extends Component
     // ==================================================================
 
     /**
-     * Las tres pestanas devuelven EXACTAMENTE las mismas claves. Es lo que
-     * permite que el blade tenga un unico bloque de tarjetas en vez de uno por
-     * pestana, y lo que hace que las cifras sean comparables entre lineas.
+     * Las tres pestanas devuelven EXACTAMENTE las mismas claves y salen de las
+     * mismas consultas; solo cambia el tipo de linea.
      */
     private function resumenPestana(): array
     {
@@ -455,21 +433,15 @@ class ReporteIndex extends Component
         [$desdeAnt, $hastaAnt] = $this->periodoAnterior();
 
         $etiqueta = self::TABS[$this->tab];
+        $tipo = $this->tipoTab();
 
-        if ($this->esCelulares()) {
-            $ventas = $this->agregadoVentasCelulares($desde, $hasta);
-            $ventasAnt = $this->agregadoVentasCelulares($desdeAnt, $hastaAnt);
-            $compras = $this->agregadoComprasCelulares($desde, $hasta);
-            $comprasAnt = $this->agregadoComprasCelulares($desdeAnt, $hastaAnt);
-            $descripcion = 'Solo celulares: lo vendido, lo comprado y la ganancia del período. La mano de obra y las demás líneas están en el resumen de arriba.';
-        } else {
-            $tipo = $this->tipoTab();
-            $ventas = $this->agregadoVentasRepuestos($desde, $hasta, $tipo);
-            $ventasAnt = $this->agregadoVentasRepuestos($desdeAnt, $hastaAnt, $tipo);
-            $compras = $this->agregadoComprasRepuestos($desde, $hasta, $tipo);
-            $comprasAnt = $this->agregadoComprasRepuestos($desdeAnt, $hastaAnt, $tipo);
-            $descripcion = 'Solo ' . mb_strtolower($etiqueta) . ': lo vendido, lo comprado y la ganancia del período. El descuento de cada orden se reparte a prorrata entre sus líneas.';
-        }
+        $ventas = $this->agregadoVentas($desde, $hasta, $tipo);
+        $ventasAnt = $this->agregadoVentas($desdeAnt, $hastaAnt, $tipo);
+        $compras = $this->agregadoCompras($desde, $hasta, $tipo);
+        $comprasAnt = $this->agregadoCompras($desdeAnt, $hastaAnt, $tipo);
+
+        $descripcion = 'Solo ' . mb_strtolower($etiqueta) . ': lo vendido, lo comprado y la ganancia del período. '
+            . 'El descuento de cada venta se reparte a prorrata entre todas sus líneas; la mano de obra está en el resumen de arriba.';
 
         return [
             'titulo' => $etiqueta,
@@ -481,6 +453,7 @@ class ReporteIndex extends Component
             'operaciones' => $ventas->operaciones,
             'inversion' => $compras->costo,
             'unidadesCompradas' => $compras->unidades,
+            'perdidas' => $this->perdidas($desde, $hasta, $tipo),
             'costoPromedio' => $this->ratio($compras->costo, $compras->unidades),
             'margen' => $this->ratio($ventas->ganancia * 100, $ventas->ingreso),
             'ticket' => $this->ratio($ventas->ingreso, $ventas->operaciones),
@@ -490,19 +463,34 @@ class ReporteIndex extends Component
             'mejorVendedor' => $this->mejorPor('user'),
             'mejorSucursal' => $this->mejorPor('sucursal'),
             'topArticulos' => $this->topArticulos(),
+            'porTipoVenta' => $this->esCelulares() ? $this->porTipoVenta($desde, $hasta) : [],
         ];
+    }
+
+    /**
+     * Celulares por tipo de venta (Venta / Oferta / Venta externa), con el
+     * valor CONGELADO en la linea: editar el equipo despues no reescribe el
+     * reporte.
+     */
+    private function porTipoVenta($desde, $hasta): array
+    {
+        return $this->lineasVenta($desde, $hasta, LineaTipo::Producto->value)
+            ->groupBy('d.tipo_venta')
+            ->orderByDesc('monto')
+            ->select(
+                DB::raw("COALESCE(d.tipo_venta, 'Venta') as tipo_venta"),
+                DB::raw('COUNT(*) as unidades'),
+                DB::raw('SUM(d.subtotal) - ' . self::DESCUENTO_PRORRATEADO . ' as monto')
+            )
+            ->get()
+            ->all();
     }
 
     // ==================================================================
     // Rankings
     // ==================================================================
 
-    /**
-     * Mejor vendedor o mejor sucursal de la linea activa, por ingreso.
-     *
-     * Solo cuentan las ventas: `compras` no guarda ni user_id ni sucursal_id,
-     * asi que del lado de la compra ese dato no existe.
-     */
+    /** Mejor vendedor o mejor sucursal de la linea activa, por ingreso neto. */
     private function mejorPor(string $eje): ?object
     {
         $columna = $eje === 'user' ? 'user_id' : 'sucursal_id';
@@ -511,28 +499,10 @@ class ReporteIndex extends Component
 
         [$desde, $hasta] = $this->rangoActual();
 
-        if ($this->esCelulares()) {
-            $ranking = DB::table('ventas_productos as vp')
-                ->join('ventas as v', 'v.id', '=', 'vp.venta_id')
-                ->whereBetween('v.created_at', [$desde, $hasta])
-                ->whereNotNull("v.$columna")
-                ->groupBy("v.$columna")
-                ->select("v.$columna as clave", DB::raw('SUM(vp.subtotal) as monto'));
-        } else {
-            $ranking = DB::table('ventas_repuestos_detalles as d')
-                ->join('ventas_repuestos as v', 'v.id', '=', 'd.venta_repuesto_id')
-                ->whereBetween('v.created_at', [$desde, $hasta])
-                ->whereNotNull("v.$columna")
-                ->where('d.tipo', $this->tipoTab())
-                ->groupBy("v.$columna")
-                ->select("v.$columna as clave", DB::raw('SUM(d.subtotal) as monto'));
-        }
-
-        $fila = DB::table(DB::raw("({$ranking->toSql()}) as ranking"))
-            ->mergeBindings($ranking)
-            ->join("$tabla as t", 't.id', '=', 'ranking.clave')
+        $fila = $this->lineasVenta($desde, $hasta, $this->tipoTab())
+            ->join("$tabla as t", 't.id', '=', "v.$columna")
             ->groupBy('t.id', "t.$campo")
-            ->select("t.$campo as nombre", DB::raw('SUM(ranking.monto) as monto'))
+            ->select("t.$campo as nombre", DB::raw('SUM(d.subtotal) - ' . self::DESCUENTO_PRORRATEADO . ' as monto'))
             ->orderByDesc('monto')
             ->first();
 
@@ -541,44 +511,30 @@ class ReporteIndex extends Component
 
     /**
      * Top de articulos de la linea activa. Un celular es una unidad unica con
-     * IMEI, asi que ahi se agrupa por MODELO; los repuestos y accesorios, por
+     * IMEI, asi que ahi se agrupa por MODELO; repuestos y accesorios, por
      * articulo.
      */
     private function topArticulos(int $limite = 5): array
     {
         [$desde, $hasta] = $this->rangoActual();
+        $query = $this->lineasVenta($desde, $hasta, $this->tipoTab());
 
         if ($this->esCelulares()) {
-            return DB::table('ventas_productos as vp')
-                ->join('ventas as v', 'v.id', '=', 'vp.venta_id')
-                ->join('productos as p', 'p.id', '=', 'vp.producto_id')
+            $query->join('productos as p', 'p.id', '=', 'd.producto_id')
                 ->leftJoin('productos_modelos as m', 'm.id', '=', 'p.producto_modelo_id')
-                ->whereBetween('v.created_at', [$desde, $hasta])
                 ->groupBy('m.nombre')
-                ->select(
-                    DB::raw("COALESCE(m.nombre, 'Sin modelo') as nombre"),
-                    DB::raw("'Celular' as categoria"),
-                    DB::raw('COUNT(vp.id) as unidades'),
-                    DB::raw('SUM(vp.subtotal) as monto')
-                )
-                ->orderByDesc('unidades')
-                ->limit($limite)
-                ->get()
-                ->all();
+                ->select(DB::raw("COALESCE(m.nombre, 'Sin modelo') as nombre"));
+        } else {
+            // ArticuloTipo es la unica fuente de los nombres de tabla y columna
+            // que se interpolan.
+            $articulo = LineaTipo::from($this->tipoTab())->articulo();
+            $query->join($articulo->tabla() . ' as a', 'a.id', '=', 'd.' . $articulo->columna())
+                ->groupBy('a.id', 'a.nombre')
+                ->select('a.nombre');
         }
 
-        return DB::table('ventas_repuestos_detalles as d')
-            ->join('ventas_repuestos as v', 'v.id', '=', 'd.venta_repuesto_id')
-            ->join('repuestos as r', 'r.id', '=', 'd.repuesto_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->where('d.tipo', $this->tipoTab())
-            ->groupBy('r.nombre', 'd.tipo')
-            ->select(
-                'r.nombre',
-                'd.tipo as categoria',
-                DB::raw('SUM(d.cantidad) as unidades'),
-                DB::raw('SUM(d.subtotal) as monto')
-            )
+        return $query
+            ->addSelect(DB::raw('SUM(d.cantidad) as unidades'), DB::raw('SUM(d.subtotal) as monto'))
             ->orderByDesc('unidades')
             ->limit($limite)
             ->get()
@@ -592,18 +548,35 @@ class ReporteIndex extends Component
     /**
      * Misma tabla para las tres pestanas: por periodo, lo vendido y lo comprado
      * de esa linea. Las dos ramas del UNION emiten las MISMAS columnas en el
-     * MISMO orden -- un UNION empareja por POSICION, no por nombre, y ese
-     * descuido ya sumo una vez los accesorios en la columna de repuestos sin
-     * dar ningun error.
+     * MISMO orden -- un UNION empareja por POSICION, no por nombre.
      */
     private function tablaData()
     {
         [$desde, $hasta] = $this->rangoActual();
         $fmt = $this->reportType === 'monthly' ? '%Y-%m' : '%Y-%m-%d';
+        $tipo = $this->tipoTab();
 
-        [$ventas, $compras] = $this->esCelulares()
-            ? $this->ramasCelulares($desde, $hasta, $fmt)
-            : $this->ramasTipo($desde, $hasta, $fmt);
+        $ventas = $this->lineasVenta($desde, $hasta, $tipo)
+            ->groupBy('period_key')
+            ->select(
+                DB::raw("DATE_FORMAT(v.created_at, '$fmt') as period_key"),
+                DB::raw('SUM(d.cantidad) as unidades'),
+                DB::raw(self::INGRESO_NETO . ' as ingreso'),
+                DB::raw(self::INGRESO_NETO . ' - SUM(d.subtotal_costo) as ganancia'),
+                DB::raw('0 as comp_unidades'),
+                DB::raw('0 as inversion')
+            );
+
+        $compras = $this->lineasCompra($desde, $hasta, $tipo)
+            ->groupBy('period_key')
+            ->select(
+                DB::raw("DATE_FORMAT(c.fecha, '$fmt') as period_key"),
+                DB::raw('0 as unidades'),
+                DB::raw('0 as ingreso'),
+                DB::raw('0 as ganancia'),
+                DB::raw('SUM(d.cantidad) as comp_unidades'),
+                DB::raw('SUM(d.subtotal) as inversion')
+            );
 
         $combinada = $ventas->unionAll($compras);
 
@@ -615,81 +588,12 @@ class ReporteIndex extends Component
                 'period_key',
                 DB::raw('SUM(unidades) as unidades'),
                 DB::raw('SUM(ingreso) as ingreso'),
-                // El costo se deriva: en celulares el coste de una linea sin
-                // captura es estimado por GANANCIA_CELULARES, no sumable.
                 DB::raw('SUM(ingreso) - SUM(ganancia) as costo'),
                 DB::raw('SUM(ganancia) as ganancia'),
                 DB::raw('SUM(comp_unidades) as comp_unidades'),
                 DB::raw('SUM(inversion) as inversion')
             )
             ->paginate(10);
-    }
-
-    /** @return array{0:\Illuminate\Database\Query\Builder,1:\Illuminate\Database\Query\Builder} */
-    private function ramasCelulares($desde, $hasta, string $fmt): array
-    {
-        $ventas = DB::table('ventas_productos as vp')
-            ->join('ventas as v', 'v.id', '=', 'vp.venta_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(v.created_at, '$fmt') as period_key"),
-                DB::raw('COUNT(vp.id) as unidades'),
-                DB::raw('SUM(vp.subtotal) as ingreso'),
-                DB::raw(self::GANANCIA_CELULARES . ' as ganancia'),
-                DB::raw('0 as comp_unidades'),
-                DB::raw('0 as inversion')
-            );
-
-        $compras = DB::table('compras as c')
-            ->whereBetween('c.fecha_compra', [$desde, $hasta])
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(c.fecha_compra, '$fmt') as period_key"),
-                DB::raw('0 as unidades'),
-                DB::raw('0 as ingreso'),
-                DB::raw('0 as ganancia'),
-                DB::raw('SUM(c.cantidad_total) as comp_unidades'),
-                DB::raw('SUM(c.costo_total) as inversion')
-            );
-
-        return [$ventas, $compras];
-    }
-
-    /** @return array{0:\Illuminate\Database\Query\Builder,1:\Illuminate\Database\Query\Builder} */
-    private function ramasTipo($desde, $hasta, string $fmt): array
-    {
-        $tipo = $this->tipoTab();
-
-        $ventas = DB::table('ventas_repuestos_detalles as d')
-            ->join('ventas_repuestos as v', 'v.id', '=', 'd.venta_repuesto_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->where('d.tipo', $tipo)
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(v.created_at, '$fmt') as period_key"),
-                DB::raw('SUM(d.cantidad) as unidades'),
-                DB::raw(self::INGRESO_NETO . ' as ingreso'),
-                DB::raw(self::INGRESO_NETO . ' - SUM(d.subtotal_costo) as ganancia'),
-                DB::raw('0 as comp_unidades'),
-                DB::raw('0 as inversion')
-            );
-
-        $compras = DB::table('compras_repuestos_detalles as d')
-            ->join('compras_repuestos as c', 'c.id', '=', 'd.compra_repuesto_id')
-            ->whereBetween('c.fecha_compra', [$desde, $hasta])
-            ->where('d.tipo', $tipo)
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(c.fecha_compra, '$fmt') as period_key"),
-                DB::raw('0 as unidades'),
-                DB::raw('0 as ingreso'),
-                DB::raw('0 as ganancia'),
-                DB::raw('SUM(d.cantidad) as comp_unidades'),
-                DB::raw('SUM(d.subtotal) as inversion')
-            );
-
-        return [$ventas, $compras];
     }
 
     // ==================================================================
@@ -710,13 +614,8 @@ class ReporteIndex extends Component
         $fmtEtiqueta = $this->reportType === 'monthly' ? 'M Y' : 'M d, Y';
         $fmtClave = $this->reportType === 'monthly' ? 'Y-m' : 'Y-m-d';
 
-        if ($this->esCelulares()) {
-            $ventas = $this->serieVentasCelulares($desde, $hasta, $fmt);
-            $compras = $this->serieComprasCelulares($desde, $hasta, $fmt);
-        } else {
-            $ventas = $this->serieVentasTipo($this->tipoTab(), $desde, $hasta, $fmt);
-            $compras = $this->serieComprasTipo($this->tipoTab(), $desde, $hasta, $fmt);
-        }
+        $ventas = $this->serieVentas($this->tipoTab(), $desde, $hasta, $fmt);
+        $compras = $this->serieCompras($this->tipoTab(), $desde, $hasta, $fmt);
 
         $series = [
             ['label' => 'Ventas', 'rows' => $ventas],
@@ -781,43 +680,9 @@ class ReporteIndex extends Component
         ]);
     }
 
-    private function serieVentasCelulares($desde, $hasta, string $fmt)
+    private function serieVentas(string $tipo, $desde, $hasta, string $fmt)
     {
-        return DB::table('ventas_productos as vp')
-            ->join('ventas as v', 'v.id', '=', 'vp.venta_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(v.created_at, '$fmt') as period_key"),
-                DB::raw('SUM(vp.subtotal) as monto'),
-                DB::raw('COUNT(vp.id) as unidades'),
-                DB::raw(self::GANANCIA_CELULARES . ' as ganancia')
-            )
-            ->get()
-            ->keyBy('period_key');
-    }
-
-    private function serieComprasCelulares($desde, $hasta, string $fmt)
-    {
-        return DB::table('compras as c')
-            ->whereBetween('c.fecha_compra', [$desde, $hasta])
-            ->groupBy('period_key')
-            ->select(
-                DB::raw("DATE_FORMAT(c.fecha_compra, '$fmt') as period_key"),
-                DB::raw('SUM(c.costo_total) as monto'),
-                DB::raw('SUM(c.cantidad_total) as unidades'),
-                DB::raw('0 as ganancia')
-            )
-            ->get()
-            ->keyBy('period_key');
-    }
-
-    private function serieVentasTipo(?string $tipo, $desde, $hasta, string $fmt)
-    {
-        return DB::table('ventas_repuestos_detalles as d')
-            ->join('ventas_repuestos as v', 'v.id', '=', 'd.venta_repuesto_id')
-            ->whereBetween('v.created_at', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo))
+        return $this->lineasVenta($desde, $hasta, $tipo)
             ->groupBy('period_key')
             ->select(
                 DB::raw("DATE_FORMAT(v.created_at, '$fmt') as period_key"),
@@ -829,15 +694,12 @@ class ReporteIndex extends Component
             ->keyBy('period_key');
     }
 
-    private function serieComprasTipo(?string $tipo, $desde, $hasta, string $fmt)
+    private function serieCompras(string $tipo, $desde, $hasta, string $fmt)
     {
-        return DB::table('compras_repuestos_detalles as d')
-            ->join('compras_repuestos as c', 'c.id', '=', 'd.compra_repuesto_id')
-            ->whereBetween('c.fecha_compra', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo))
+        return $this->lineasCompra($desde, $hasta, $tipo)
             ->groupBy('period_key')
             ->select(
-                DB::raw("DATE_FORMAT(c.fecha_compra, '$fmt') as period_key"),
+                DB::raw("DATE_FORMAT(c.fecha, '$fmt') as period_key"),
                 DB::raw('SUM(d.subtotal) as monto'),
                 DB::raw('SUM(d.cantidad) as unidades'),
                 DB::raw('0 as ganancia')
