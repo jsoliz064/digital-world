@@ -59,19 +59,25 @@ Hoy un equipo puede estar en: Inventario, Reparación, Vendido, Roto, Fuera o Tr
 | **Inventario** | Está para vender | Se mantiene |
 | **Reparación** | Está en el taller | Se mantiene |
 | **Vendido** | Se vendió y se cobró | Se mantiene |
-| **Roto** | Se dañó y no se puede vender | Se mantiene — es la baja por daño |
-| **Fuera** | Salió del inventario (se perdió, se descartó) | Se mantiene — es la baja por pérdida |
+| **Roto** | Está roto | Se mantiene. **No es una baja**: puede repararse o darse de baja aparte |
+| **Fuera** | Salió del local (lo tiene alguien, está en otro punto) | Se mantiene. **No es una baja** |
 | **Tránsito** | Viajando entre locales | **Se retira** |
 | **Reserva** | Apartado con una seña | **Nuevo** |
 | **Venta a crédito** | Vendido pero todavía no cobrado del todo | **Nuevo** |
 
 **Reserva** y **Venta a crédito** no son etiquetas sueltas: detrás de cada una hay dinero registrado. Están explicadas en [Ventas](03-ventas.md) y [Clientes y cobranzas](04-clientes-y-cobranzas.md).
 
+**Vendido** y **Venta a crédito** solo los pone una venta: no se pueden elegir a mano en el cambio de estado. La **oferta** tampoco es un estado: es el tipo de venta, y un equipo en oferta está en Inventario como cualquier otro.
+
 ### Dar de baja
 
-Cuando un equipo se daña o se pierde, se lo pasa a **Roto** o a **Fuera** según el caso, dejando escrito el motivo. El equipo deja de estar disponible para vender y sale de los reportes de stock, pero no se borra: queda su ficha y su historia, y aparece en el reporte de pérdidas.
+La baja **no es un estado**: es una marca aparte que **archiva** el equipo. Se elige el motivo (daño, pérdida, robo, defecto de fábrica u otro) y se puede dejar una nota.
 
-Para los accesorios, que se manejan por cantidad, la baja descuenta las unidades perdidas o dañadas dejando registrado el motivo.
+Un equipo dado de baja deja de aparecer en el listado de productos, en las ventas y en el catálogo público, pero no se borra: queda su ficha y su historia, y aparece en el reporte de pérdidas a su costo. El listado tiene un filtro para verlos, y la baja se puede revertir si fue un error.
+
+No se puede dar de baja un equipo vendido, a crédito, reservado o en reparación: primero se anula la venta, se libera la reserva o se termina la reparación.
+
+Para los repuestos y accesorios, que se manejan por cantidad, la baja descuenta las unidades de una sucursal dejando registrado el motivo y el costo.
 
 ### Accesorios de regalo
 
@@ -103,6 +109,18 @@ El código se puede cargar y buscar de dos formas, sobre el mismo campo:
 
 > La lectura por cámara exige que el sistema esté publicado con **HTTPS**: los navegadores no dan acceso a la cámara en sitios sin certificado. Es un requisito de la instalación, no del programa.
 
+Cómo funciona:
+
+- Cada campo donde se escribe un código tiene al lado un **botón de cámara**. Al leer, la cámara escribe el código en el campo como si fuera la pistola: las dos hacen exactamente lo mismo.
+- En los buscadores, **un código que coincide con un solo artículo lo agrega directo** y deja el campo listo para el siguiente. Si coincide con varios, o con ninguno, queda la lista para elegir.
+- **El código de barras de la caja de un teléfono es del modelo, no del equipo**: cinco iPhone 13 de 128 GB negros traen el mismo. Por eso escanear ese código muestra la lista, y escanear el **IMEI** (que también viene en la caja como código de barras) agrega el equipo directo.
+- La cámara tiene **linterna** (en los celulares que la permiten) y una casilla **«Seguir escaneando»** para leer varios códigos seguidos sin cerrarla.
+- Está en la venta y la compra, en la carga de equipos, en las fichas de repuestos y accesorios, en la transferencia entre sucursales, en el cambio de estado masivo, en los regalos, en los repuestos de las reparaciones y en la búsqueda de las tablas de productos, repuestos, accesorios y lotes de compra.
+
+### Código interno (SKU)
+
+Para lo que no trae código de barras, cada equipo, repuesto o accesorio puede llevar un **SKU**: un código libre que asigna el negocio, opcional y sin repetirse. Se busca desde la misma caja que el IMEI y el UPC, también con la pistola lectora.
+
 ### Todo en bolivianos
 
 Hoy los costos y precios del inventario se cargan en dólares y el sistema convierte con un tipo de cambio.
@@ -115,11 +133,13 @@ Hoy los costos y precios del inventario se cargan en dólares y el sistema convi
 |---|---|
 | IMEI | Igual |
 | — | **UPC** (código de barras) |
+| — | **SKU** (código interno, opcional) |
 | Modelo, almacenamiento, versión, color, batería | Igual |
 | Descripción y observaciones | Igual |
 | Grado (texto libre) | **Lista: A+, 1, 2, 3** |
 | Tipo de venta: Venta / Oferta / Súper Oferta | **Venta / Oferta / Venta externa** |
 | Estado (6 opciones, con Tránsito) | **7 opciones: sin Tránsito, con Reserva y Venta a crédito** |
+| — | **Baja** con motivo, aparte del estado |
 | Costo de unidad (USD) | **En Bs** |
 | Costo de envío (USD) | **Reemplazado por accesorios de regalo, en Bs** |
 | Costo de reparación (USD) | **En Bs** |
@@ -146,19 +166,24 @@ Hay también un historial por repuesto, que muestra todas sus entradas y salidas
 
 ### Qué cambia
 
+**Repuestos y accesorios pasan a ser dos listas separadas**, cada una con su pantalla, su historial y sus permisos:
+
+- **Repuestos**: igual que hoy (fabricante, modelo al que aplican, categoría de repuesto, color).
+- **Accesorios**: con su **propia categoría** (fundas, cargadores, cables...), **marca** y los **modelos compatibles**, que pueden ser varios. Los compatibles son los que el sistema ofrece primero al elegir los regalos de un equipo.
+
+El stock por sucursal, las transferencias entre sucursales, la baja de unidades y el historial de entradas y salidas funcionan igual para los dos.
+
 **Todo en bolivianos.** Igual que los equipos: se carga el costo y el precio en Bs, sin tipo de cambio.
 
-**El "costo" pasa a llamarse "código".** En las pantallas, donde hoy dice *Costo* va a decir **Código**. Es un cambio de nombre en la pantalla: el dato se sigue usando igual para calcular la ganancia, pero el personal lo ve y lo usa como el código interno de la pieza.
+**El costo se rotula «Costo (código)».** El dato sigue siendo el costo y se usa igual para calcular la ganancia; el rótulo recuerda que el personal lo usa como código interno.
 
-> Conviene confirmar esto: si "código" y "costo" son dos cosas distintas que hay que guardar por separado, hace falta un campo nuevo, no un cambio de rótulo.
-
-**Se agrega el UPC**, con el mismo lector por cámara y por pistola.
+**Se agregan el UPC y el SKU**, con el mismo lector por cámara y por pistola.
 
 ---
 
 ## Los catálogos
 
-**Marcas**, **categorías de productos**, **modelos** (cada uno con sus capacidades de almacenamiento) y **categorías de repuestos y accesorios**.
+**Marcas**, **categorías de productos**, **modelos** (cada uno con sus capacidades de almacenamiento), **categorías de repuestos** y **categorías de accesorios** (estas últimas, nuevas y separadas).
 
 Se mantienen tal como están. Son los listados que alimentan los desplegables al cargar un equipo o una pieza, y se administran desde sus propias pantallas.
 
@@ -188,11 +213,13 @@ Llega un equipo de la compra y se lo carga
 ```
 Se cae un equipo del mostrador
 
-  Estado        Inventario -> Roto
-  Motivo        "Se cayó y se rompió la pantalla, no vale la pena repararlo"
+  Estado        Inventario -> Roto           (sigue en el listado)
+  Si no vale la pena repararlo:
+  Dar de baja   Motivo: Daño
+                Nota: "Se rompió la pantalla y la placa"
 
-  Sale del stock vendible. Queda su ficha, su costo y su historia,
-  y aparece en el reporte de pérdidas.
+  Sale del listado y de la venta. Queda su ficha, su costo y su
+  historia, y aparece en el reporte de pérdidas.
 ```
 
 ---
@@ -214,9 +241,11 @@ Se cae un equipo del mostrador
 2. Grado como lista cerrada (A+, 1, 2, 3), con filtro en el listado.
 3. Tipo de venta: reemplazo de Súper Oferta por Venta externa.
 4. Estados nuevos (Reserva, Venta a crédito) y retiro de Tránsito.
-5. Baja de equipos con motivo, y baja de accesorios por cantidad.
+5. Baja de equipos con motivo (archiva el equipo, aparte del estado), y baja de repuestos y accesorios por cantidad.
 6. Campo UPC en equipos y en repuestos y accesorios, con búsqueda.
 7. Lector de código de barras por cámara del celular.
 8. Compatibilidad con pistola lectora USB.
 9. Accesorios de regalo: selección desde el stock, descuento de cantidad, suma al costo del equipo y detalle a la vista.
-10. Cambio de rótulo de "Costo" a "Código" en repuestos y accesorios.
+10. Rótulo «Costo (código)» en repuestos y accesorios.
+11. SKU opcional en equipos, repuestos y accesorios, con búsqueda junto al IMEI y el UPC.
+12. Repuestos y accesorios en listas separadas, con categorías de accesorio, marca y modelos compatibles.

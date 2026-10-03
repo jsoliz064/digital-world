@@ -30,7 +30,15 @@ Hay además un **tablero de inicio** con las ventas del día y del mes, y cuánt
 
 ## Qué cambia
 
-Todo lo anterior **se mantiene**, ahora en bolivianos. Y se agregan cuatro reportes.
+Todo lo anterior **se mantiene**, ahora en bolivianos y sobre la venta y la compra unificadas: cada pestaña lee las líneas de su tipo (equipo, repuesto o accesorio), y el descuento de una venta se reparte a prorrata entre todas sus líneas. Una venta con un equipo y un cargador cuenta como **una** operación.
+
+Ya incluido en la etapa 2:
+
+- Tarjeta de **pérdidas**: equipos dados de baja (a su costo) y unidades de repuestos o accesorios dadas de baja, en el resumen general y en cada pestaña.
+- Los celulares se desglosan por **tipo de venta** (Venta, Oferta, Venta externa), con el tipo que tenía el equipo al venderse.
+- Ya no se estima un 20 % de ganancia para los equipos sin costo cargado: cada venta guarda el costo real del equipo.
+
+Y se agregan cuatro reportes.
 
 ### Por vendedor
 

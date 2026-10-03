@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Sistema de inventario y ventas de Digital World, una tienda de celulares, accesorios y repuestos (parte de una copia del sistema de la importadora YRB; los cambios están en `docs/`). Laravel 12 + Livewire 3 + Tailwind 3 + Alpine, MySQL. Todo el dominio, la interfaz y los comentarios están en español.
+Sistema de inventario y ventas de Digital World, una tienda de celulares, accesorios y repuestos (parte de una copia del sistema de la importadora YRB; los requerimientos están en `docs/`). Laravel 12 + Livewire 3 + Tailwind 3 + Alpine, MySQL **≥ 8.0.16** (por los `CHECK`, ver abajo). Todo el dominio, la interfaz y los comentarios están en español. Se usa sobre todo desde el celular.
 
 ---
 
 ## ⚠️ Nunca ejecutes `php artisan test`
 
-`tests/Pest.php` aplica `RefreshDatabase` a todo `tests/Feature`, y en `phpunit.xml` la línea de sqlite **está comentada**. La suite corre contra `DB_DATABASE` del `.env`, que es la base de trabajo **con los datos reales del negocio**: ejecutarla la vacía. Los tests que hay son los de Jetstream recién generados; nadie los mantiene.
+`tests/Pest.php` aplica `RefreshDatabase` a todo `tests/Feature`, y en `phpunit.xml` la línea de sqlite **está comentada**. La suite corre contra `DB_DATABASE` del `.env`, que es la base de trabajo: ejecutarla la vacía. Los tests que hay son los de Jetstream recién generados; nadie los mantiene.
 
 La verificación en este repo se hace con **scripts de un solo uso en el scratchpad**, y es la convención de la casa:
 
@@ -23,11 +23,11 @@ try {
     $c = Livewire::test(MiComponente::class)->set('campo', 1)->call('store');
     ok($condicion, 'lo que se comprueba');   // imprime OK/FALLA y acumula fallas
 } finally {
-    DB::rollBack();   // SIEMPRE: la base es la de producción del usuario
+    DB::rollBack();   // SIEMPRE
 }
 ```
 
-`Livewire::test()` es la herramienta principal: monta el componente de verdad, dispara los hooks `updatedX` y renderiza el blade, así que sirve tanto para la lógica como para comprobar el HTML (`$c->html()`).
+`Livewire::test()` es la herramienta principal: monta el componente de verdad, dispara los hooks `updatedX` y renderiza el blade, así que sirve tanto para la lógica como para comprobar el HTML (`$c->html()`). Cierra cada script con `Artisan::call('productos:auditar')`: tiene que decir «Sin inconsistencias.».
 
 Si una comprobación falla, sospecha primero de la expectativa del script. En la práctica casi siempre el componente tenía razón.
 
@@ -38,12 +38,15 @@ composer dev          # serve + pail + vite, todo junto
 npm run dev           # solo Vite (necesario: sin public/build toda ruta da 500 por @vite)
 npm run build
 php artisan migrate --force
-php artisan tinker --execute='...'    # consultas sueltas contra la base real
+php artisan migrate:fresh --seed --force   # SOLO mientras la base siga vacía (ver abajo)
+php artisan tinker --execute='...'
 php artisan productos:auditar         # detector de deriva, SOLO LECTURA (ver abajo)
 php -l archivo.php                    # lint tras editar
 ```
 
-Docker (`docker-compose.yml`) es el despliegue: un solo contenedor `digital-world` (php-fpm). No hay worker de colas: el bot de WhatsApp, que era su único uso, se retiró (docs/10), y `QUEUE_CONNECTION=sync`. En local se trabaja contra MySQL directo. El `README.md` solo documenta el arranque con Docker.
+Docker (`docker-compose.yml`) es el despliegue: un solo contenedor `digital-world` (php-fpm). No hay worker de colas: el bot de WhatsApp, que era su único uso, se retiró (docs/10), y `QUEUE_CONNECTION=sync`. El `README.md` solo documenta el arranque con Docker.
+
+**Las migraciones están aplanadas** (`0001_*` y `2026_10_04_*`, una por tabla) y la base todavía no tiene datos del negocio: un cambio de esquema se hace **editando la migración inicial de esa tabla** y corriendo `migrate:fresh --seed`, no con una migración de parche. El día que haya datos reales, esto se acaba. Los seeders dejan `admin@gmail.com` / `1234` con todos los permisos, la sucursal Almacén, el catálogo base de marcas y modelos y las categorías de accesorio.
 
 ---
 
@@ -51,67 +54,105 @@ Docker (`docker-compose.yml`) es el despliegue: un solo contenedor `digital-worl
 
 ### El dominio en una frase
 
-Un **cliente** es una ficha (nombre obligatorio, CI único cuando está, teléfono y correo). Un **producto** es un teléfono concreto con IMEI único y un `estado` (`Inventario`, `Reparacion`, `Vendido`, `Fuera`, `Roto`, `Transito`); un **repuesto** es stock por cantidad, y la columna `repuestos.tipo` lo parte en pieza de reparación o **accesorio**. Ese par —pieza única contra stock fungible— explica casi todas las asimetrías del código.
+Un **producto** es un teléfono concreto con IMEI único; un **repuesto** (pieza del taller) y un **accesorio** (lo que se vende en mostrador) son stock por cantidad, en **dos tablas** con un **stock común**. Ese par —pieza única contra stock fungible— explica casi todas las asimetrías del código. Una **venta** y una **compra** son un solo documento cuyas líneas pueden ser de los tres tipos.
 
 ```
-Compra ──> Producto (IMEI, estado) ──> ProductoReparacion ──> ProductoReparacionRepuesto ──> baja de stock
-                │                                                         │
-                │                                                         └─> RepuestosDeReparacionService
-                └──> Venta ──> VentaProducto                                  (cobra esos repuestos con el
-                                  teléfono, SIN volver a descontar stock)
-
-CompraRepuesto ────────┐                        ┌──> VentaRepuesto ──> VentaRepuestoDetalle
-RepuestoTransferencia ─┼──> repuestos_sucursales┤
-                       │    (la unica verdad)   └──> ProductoReparacionRepuesto
-                       │
-                       └──> repuestos.cantidad = SUM(subtabla), cacheado y $guarded
+                     compras ──> compras_detalles ─┬─> Producto (IMEI, estado, grado, tipo_venta, baja)
+                                  (P / R / A)      │      │
+                                                   │      ├──> ProductoReparacion ──> ProductoReparacionRepuesto ─┐
+                                                   │      ├──> ProductoRegalo (accesorios regalados)           │
+                                                   │      └──> ventas_detalles (cantidad 1)                    │
+                                                   │                                                           │ baja de stock
+                                                   └─> stock_sucursales ◄── stock_transferencias, stock_bajas  │
+                                                       (la unica verdad)                                       │
+                                                         │                                                     │
+                     ventas ──> ventas_detalles ◄────────┴─────────────────────────────────────────────────────┘
+                                 (P / R / A / C = cobro de una pieza montada: costo 0, NO mueve stock)
 ```
 
-Todo lo que le pasa a un teléfono, a un repuesto, a un cliente, a una venta o a un usuario queda en **la bitácora** (`bitacoras`), con su autor y su antes/después. La escribe un Observer, no cada pantalla — ver la sección de abajo.
+`ArticuloTipo` (Repuesto, Accesorio) es **la única fuente** de los nombres de tabla y columna que se interpolan en SQL (`tabla()`, `columna()`, `modelo()`, `permiso()`); `LineaTipo` (Producto, Repuesto, Accesorio) es el tipo de una línea de venta o de compra.
 
-### El stock de repuestos: `StockRepuestoService` es el único camino
+Todo lo que le pasa a un teléfono, a un artículo, a un cliente, a una venta, a una compra o a un usuario queda en **la bitácora** (`bitacoras`), con su autor y su antes/después. La escribe un Observer, no cada pantalla — ver la sección de abajo.
 
-`repuestos_sucursales` (repuesto_id, sucursal_id, cantidad) es **la única verdad** del inventario. `repuestos.cantidad` es un **total cacheado**: la suma de esa subtabla, y está en `$guarded` porque solo lo escribe `recalcularTotales()`. Si un stock "no se guarda", ese `$guarded` es el primer sitio donde mirar — descarta en silencio, como la trampa de `$fillable`.
+### Los servicios son los únicos escritores
 
-**Nadie escribe stock fuera de [StockRepuestoService](app/Services/StockRepuestoService.php).** Antes se movía con `increment`/`decrement` directos desde **dieciséis sitios** en ocho componentes, cada uno con su idiom; ahora son dieciséis llamadas a cuatro métodos. Reglas del servicio, todas con su motivo en el docblock:
+| Lo que se escribe | Único camino |
+|---|---|
+| `stock_sucursales` y los totales cacheados | [StockService](app/Services/StockService.php) |
+| `productos.estado` | [EstadoProductoService](app/Services/EstadoProductoService.php) |
+| `ventas_detalles` | [VentaService](app/Services/VentaService.php) (`registrar`, `actualizar`) |
+| anular una línea o una venta | [AnulacionVentaService](app/Services/AnulacionVentaService.php) |
+| cobrar las piezas de una reparación | [RepuestosDeReparacionService](app/Services/RepuestosDeReparacionService.php) |
+| `compras_detalles` y el alta de equipos | [CompraService](app/Services/CompraService.php) |
+| la baja de un equipo o de unidades | [BajaService](app/Services/BajaService.php) |
+| los regalos de un equipo | [ProductoRegalosService](app/Services/ProductoRegalosService.php) |
+| buscar por IMEI / UPC / SKU / nombre | [BuscadorArticulosService](app/Services/BuscadorArticulosService.php) |
 
-- **No hay `mover($delta)` con signo.** `ingresar` / `retirar` / `ajustarEntrada` / `ajustarSalida`, siempre con cantidades positivas: la dirección vive en el nombre del método. El fallo recurrente del módulo era un signo copiado del módulo de al lado — compras calcula `nuevo − original` y ventas `original − nuevo`, **las dos correctas**, y por eso se copiaban mal.
-- **El `WHERE cantidad >= ?` de `retirar()` ES la validación de stock**, y es atómica. No la saques a un `SELECT` previo: entre un select y un update cabe otra venta. Antes no había ninguna validación y vender 50 de algo con 3 dejaba el contador en −47.
+**Ningún servicio abre transacción**: la abre el componente, para que un fallo revierta el stock **y** el documento. Los componentes no escriben esas tablas por su cuenta: si una pantalla necesita algo nuevo, va al servicio.
+
+### El stock: `StockService`
+
+`stock_sucursales` (repuesto_id **o** accesorio_id, sucursal_id, cantidad) es **la única verdad** del inventario. `repuestos.cantidad` y `accesorios.cantidad` son **totales cacheados** (la suma de esa tabla), en `$guarded` porque solo los escribe `recalcularTotales()`. Si un stock "no se guarda", ese `$guarded` es el primer sitio donde mirar.
+
+Cada método recibe `(ArticuloTipo $tipo, int $id, ...)`. Reglas, todas con su motivo en el docblock:
+
+- **No hay `mover($delta)` con signo.** `ingresar` / `retirar` / `ajustarEntrada` / `ajustarSalida` / `transferir`, siempre con cantidades positivas: la dirección vive en el nombre del método. Compras calcula `nuevo − original` y ventas `original − nuevo`, **las dos correctas**, y por eso se copiaban mal.
+- **El `WHERE cantidad >= ?` de `retirar()` ES la validación de stock**, y es atómica. No la saques a un `SELECT` previo: entre un select y un update cabe otra venta.
 - **El corte en `$cantidad === 0`** es lo que permite reguardar una venta vieja sin tocarle la cantidad.
-- `recalcularTotales()` se llama **una vez al final** de cada guardado, dentro de la transacción del llamador. Es un `SUM`, idempotente y auto-sanante; si lo olvidas, el total queda atrás hasta la siguiente operación del artículo.
-- Ningún método abre transacción: asumen la del llamador, para que una venta fallida revierta el stock **y** el documento.
+- `recalcularTotales()` se llama **una vez al final** de cada guardado. Recuerda qué artículos tocó **por instancia** (`$tocados`): pide el servicio con `app(StockService::class)` dentro del flujo y no reutilices una instancia entre operaciones ajenas.
 
-**La sucursal de un movimiento se congela en la línea**, no se deduce del documento: `ventas_repuestos_detalles.sucursal_id`, `compras_repuestos.sucursal_id` y `productos_reparaciones_repuestos.sucursal_id`. Para reparaciones es obligatorio y no opcional: la pieza sale de una sucursal, al terminar la reparación el equipo se muda al Almacén, y quitar la línea después tiene que devolver el stock **a la sucursal original**.
+**La sucursal de un movimiento se congela en la línea**, no se deduce del documento: `ventas_detalles.sucursal_id`, `compras_detalles.sucursal_id`, `productos_reparaciones_repuestos.sucursal_id`, `productos_regalos.sucursal_id`. Anular o quitar la línea devuelve el stock **a esa sucursal**, aunque el equipo se haya mudado (la reparación terminada se muda al Almacén).
 
-`app/Models/RepuestoMovimiento.php` es un **modelo virtual sin tabla**: un `UNION ALL` de cuatro fuentes en **cinco ramas** (una transferencia son dos: Salida en el origen y Entrada en el destino, neta cero), de solo lectura, con los hooks `saving`/`deleting` lanzando excepción. Las ramas se emparejan **por posición** y son trece columnas: si agregas una, va en las cinco y en el mismo orden. Su docblock explica por qué `$table` y el alias del `fromSub` deben ser la misma cadena (rappasoft compone los SELECT con `getTable()`) — no lo toques sin leerlo.
+**Las tablas de stock usan FK explícitas, no polimorfismo**: `repuesto_id` y `accesorio_id` nullable con un `CHECK` de exactamente uno, y en `stock_sucursales` dos `UNIQUE` compuestos (`(repuesto_id, sucursal_id)` y `(accesorio_id, sucursal_id)`; los NULL no chocan, así que el `ON DUPLICATE KEY` de `ingresar()` funciona). Por debajo de MySQL 8.0.16 los `CHECK` se ignoran **en silencio**.
 
-Un tipo de movimiento nuevo necesita su case en `RepuestoMovimientoTipo`: el filtro de la tabla hace `array_intersect(..., ::values())` como whitelist, y lo que no esté en el enum **se filtra fuera en silencio**.
+`app/Models/MovimientoStock.php` es un **modelo virtual sin tabla** (`movimientos_stock` no existe): un `UNION ALL` de compras, ventas, reparaciones (solo repuestos), regalos (solo accesorios), bajas y la transferencia en dos ramas (Salida en el origen, Entrada en el destino). Solo se consulta con `paraArticulo($tipo, $id)`. Las ramas se emparejan **por posición** y son trece columnas: si agregas una, va en todas y en el mismo orden. Las ramas de reparación y de regalo son **condicionales por tipo**: si no, el historial del accesorio #5 mostraría las piezas del repuesto #5. Su docblock explica por qué `$table` y el alias del `fromSub` deben ser la misma cadena y por qué `$incrementing = false` — no lo toques sin leerlo. Un tipo de movimiento nuevo necesita su case en `MovimientoStockTipo`: el filtro hace de whitelist y lo que no esté en el enum **se filtra fuera en silencio**.
 
-### El estado de un producto: `EstadoProductoService` es el único camino
+### Venta y compra unificadas
 
-`productos.estado` lo escribe **solo** [EstadoProductoService](app/Services/EstadoProductoService.php). Antes se cambiaba desde **diez sitios** en ocho componentes y dos de ellos no dejaban fila de historial, así que la promesa de arriba era falsa: el auditor encontró **6 de 93 productos** con su última fila en desacuerdo con su estado real.
+`ventas_detalles` y `compras_detalles` llevan `producto_id`, `repuesto_id` y `accesorio_id` nullable, y dos **columnas generadas STORED**:
 
-Su método es `cambiar($productoId, $esperado, $destino, $descripcion, $enlaces, $exigirPermiso)`, y hace cuatro cosas en orden:
+- `tipo` (Producto / Repuesto / Accesorio): agrupa los reportes y **no puede contradecir** a las FK.
+- `articulo_clave` (`P-12`, `R-5`, `A-3`, y `C-<id>` para un cobro de reparación): es la **clave natural** de la línea, con `UNIQUE (venta_id, articulo_clave)`. Vuelve idempotente la edición: reintentarla no duplica líneas.
 
-1. **Relee el producto con `lockForUpdate()`.**
-2. **Exige que siga en `$esperado`** — el estado con el que se abrió la pantalla, no el que haya ahora. Si no, `ValidationException` con un mensaje que **nombra el estado que encontró**. Esto es lo que vuelve inocuo reintentar.
-3. Comprueba el permiso `producto.estado.<destino>`, pero **solo si `$exigirPermiso`**: se pasa `true` únicamente donde el usuario *elige* el estado de un select ya filtrado por permisos (el modal individual). En el resto el cambio es consecuencia de otra operación — vender, terminar una reparación — que tiene su propio permiso, y exigirlo además dejaría sin vender a quien puede vender.
-4. Hace `$producto->anotar($destino->value, $descripcion, $enlaces)` y luego el `update()` de `estado`, **desde la misma variable `$destino`**: así es estructuralmente imposible que la bitácora y el estado se contradigan, y el Observer escribe **una** fila con el evento, la frase y el diff.
+Más `CHECK` de exactamente un artículo, equipo con cantidad 1 y cantidad ≥ 1. Las columnas generadas **no van en `$fillable`** (MySQL rechaza escribirlas).
 
-**Por qué una lectura bloqueada y no un `UPDATE ... WHERE estado = ?`.** El idiom atómico de `StockRepuestoService::retirar()` — condición en el `WHERE`, mirar las filas afectadas — aquí **se rompe en silencio**: Laravel no activa `PDO::MYSQL_ATTR_FOUND_ROWS`, así que MySQL devuelve filas *cambiadas*, no *encontradas*. Un `SET estado='Fuera' WHERE estado='Fuera'` —reabrir un producto en Fuera para corregirle la descripción— devuelve **0** y fingiría un conflicto inexistente. En `retirar()` funciona porque `cantidad - n` siempre cambia el valor.
+- **El costo se relee de la base**, nunca del formulario: del equipo bloqueado (`costo_total`, que ya incluye regalos y reparaciones) o del artículo. La línea lo congela.
+- **Orden de bloqueo idéntico en todos los flujos**: equipos por id y luego stock por (tipo, id). En otro orden, dos ventas simultáneas se bloquearían mutuamente.
+- **El cobro de las piezas de una reparación es una línea más de la misma venta** (`producto_reparacion_repuesto_id`), con costo 0 —la pieza ya está dentro del costo del equipo— y **sin mover stock** (`VentaDetalle::stockYaDescontado()`). Se descobra **antes** de tocar la venta. La FK de cobro va en RESTRICT: `PiezasCobradasTrait` avisa antes de quitar o cambiar una pieza ya cobrada (con SET NULL, el cobro se convertía en una venta normal que movía stock).
+- `venta_id` / `compra_id` van en **RESTRICT**: anular pasa por el servicio, que devuelve el stock; nunca por una cascada. Una venta o compra sin líneas se borra (una cabecera vacía se lee como "no se guardó").
+- **No existe `productos.compra_id`**: la línea de `compras_detalles` (UNIQUE `producto_id`) es la única verdad de qué compra trajo el equipo. `Producto::compra()` es un `hasOneThrough`; `Producto::compraDetalle()` y `ventaDetalle()` son las líneas.
+- `ventas_detalles.tipo_venta` congela el tipo de venta del equipo al venderse: los reportes no cambian si luego se edita el equipo.
+- **Hay una sola puerta de venta**: [VentaForm](app/Livewire/Venta/VentaForm.php) (crear y editar). El modal de estado del producto ya no vende: su botón «Vender» lleva a `ventas/crear?producto=`.
 
-Anular la línea de venta de un teléfono va por [AnulacionVentaService](app/Services/AnulacionVentaService.php), también único camino: descobra los repuestos **antes** de tocar la venta, borra la cabecera si era el último producto (una venta sin líneas es basura que se lee como "no se guardó") y devuelve el equipo con su precondición.
+### El producto: estado, baja y regalos
 
-`disponible_catalogo` **no se toca al vender**. Es una casilla que marca el operador a mano en el modal del lote; el catálogo ya excluye `Vendido` con un `whereNotIn` y su condición es `disponible_catalogo = 1 OR estado IN (Inventario, Oferta)`, así que ponerla en `false` no cambiaba nada de lo que se ve y en cambio borraba para siempre la elección del operador, sin guardar el valor anterior en ninguna parte.
+`ProductoEstado`: Inventario, Reparacion, Fuera, Roto, Reserva, Credito, Vendido. **Fuera** = salió del local (lo tiene alguien); **Roto** = está roto. **Ninguno es una baja.** No hay Tránsito ni Oferta: la oferta es `productos.tipo_venta` (Venta, Oferta, Venta externa), y un equipo en oferta está en Inventario. `Vendido` y `Credito` (`ProductoEstado::vendidos()`) **solo los escribe una venta**: no salen en el selector. `fueraDeCatalogo()` es lo que el catálogo público excluye (vendidos, rotos, reservados).
+
+`productos.estado` lo escribe **solo** `EstadoProductoService::cambiar($productoId, $esperado, $destino, $descripcion, $enlaces, $exigirPermiso)`:
+
+1. **Relee el producto con `lockForUpdate()`** y rechaza los dados de baja.
+2. **Exige que siga en `$esperado`** — el estado con el que se abrió la pantalla. Si no, `ValidationException` que **nombra el estado que encontró**. Esto vuelve inocuo reintentar.
+3. Comprueba `producto.estado.<destino>` **solo si `$exigirPermiso`** (donde el usuario elige el estado de un select ya filtrado). Cuando el cambio es consecuencia de otra operación —vender, terminar una reparación— no se exige: dejaría sin vender a quien puede vender.
+4. `$producto->anotar($destino->value, ...)` y el `update()` desde **la misma variable**: la bitácora y el estado no pueden contradecirse.
+
+**Por qué una lectura bloqueada y no un `UPDATE ... WHERE estado = ?`**: Laravel no activa `PDO::MYSQL_ATTR_FOUND_ROWS`, así que MySQL devuelve filas *cambiadas*, no *encontradas*. Un `SET estado='Fuera' WHERE estado='Fuera'` devuelve **0** y fingiría un conflicto. En `retirar()` el idiom funciona porque `cantidad - n` siempre cambia el valor.
+
+**La baja es un atributo aparte, no un estado**: `dado_de_baja_at`, `motivo_baja` (`BajaMotivo`), `nota_baja`, `baja_user_id`, con un `CHECK` que exige fecha y motivo juntos. Archiva el equipo sin tocar su estado. **No usa SoftDeletes** (rompería `morphTo` y las relaciones): las consultas filtran con `Producto::scopeVigentes()` (listados) y `scopeDisponibles()` (vendible = Inventario **y** sin baja; es el único sitio de la pregunta "¿se puede vender?"). No se da de baja un equipo vendido, a crédito, reservado o en reparación. La baja de unidades de stock va a `stock_bajas` con su costo congelado; las dos alimentan la tarjeta de **Pérdidas** del reporte.
+
+**Los regalos reemplazan al costo de envío**: `productos_regalos` (accesorio, cantidad, sucursal de origen y costo congelados). Bajan el stock del accesorio y suben `productos.costo_regalos`. Solo mientras el equipo no está vendido ni dado de baja: al vender, la línea congela el `costo_total` que ya los incluye.
+
+`costo_total = costo_unidad + costo_regalos + costo_reparacion`, en Bs, y solo lo escribe `Producto::recalcularCosto()` (el trabajo externo no suma: lo paga el cliente).
+
+`disponible_catalogo` **no se toca al vender**: es una casilla del operador, y el catálogo ya excluye lo vendido por estado.
 
 ### La bitácora: un Observer escribe, los servicios declaran la intención
 
-`bitacoras` es **una** tabla polimórfica (`auditable_type` / `auditable_id`) para todo: el historial del teléfono, la pestaña «Cambios» del repuesto y el historial de cada usuario son tres filtros de la misma tabla. Sustituye a `productos_historiales`, que se escribía a mano desde **diecinueve** sitios, solo sabía de cambios de estado —editar el precio, el IMEI o la sucursal de un teléfono no dejaba nada— y además se **editaba** y se **borraba**. Sus 112 filas se copiaron con su fecha original; la tabla vieja queda intacta y **nadie la escribe ya**.
+`bitacoras` es **una** tabla polimórfica (`auditable_type` / `auditable_id`) para todo: el historial del teléfono, la pestaña «Cambios» de un artículo y el historial de cada usuario son filtros de la misma tabla.
 
-Un modelo entra con `use Auditable;` (hoy: `Producto`, `Repuesto`, `Venta`, `VentaRepuesto`, `CompraRepuesto`, `Cliente`, `User`). Desde ahí [BitacoraObserver](app/Observers/BitacoraObserver.php) es **el único escritor** de los cambios de modelo, y hay dos vías para dar contexto:
+Un modelo entra con `use Auditable;` (hoy: `Producto`, `Repuesto`, `Accesorio`, `Venta`, `Compra`, `Cliente`, `User`). Desde ahí [BitacoraObserver](app/Observers/BitacoraObserver.php) es **el único escritor** de los cambios de modelo, y hay dos vías para dar contexto:
 
 ```php
-$producto->anotar('Vendido', "Vendido. Venta #65, Daniel, $ 915.40", ['venta_id' => 65]);
+$producto->anotar('Vendido', "Vendido. Venta #65, Daniel, Bs 3.200", ['venta_id' => 65]);
 $producto->update(['estado' => 'Vendido']);
 // -> UNA fila: evento Vendido + la frase + {"estado": ["Inventario", "Vendido"]}
 
@@ -119,73 +160,66 @@ Bitacora::registrar($producto, 'garantia', 'Producto en reparacion por garantia.
 // -> un hecho suelto, para lo que NO es un save() del modelo
 ```
 
-Sin `anotar()`, el Observer escribe `editado` con el diff a secas. Reglas, todas con su motivo en el código:
+Sin `anotar()`, el Observer escribe `editado` con el diff a secas. Reglas:
 
-- **`anotar()` va ANTES del save, nunca después.** El Observer lo consume en ese save. Si el save no cambia ninguna columna —reabrir un `Fuera` para corregir la nota— Eloquent no dispara `updated`, y por eso el Observer escucha también `saved`: lo anotado se registra igual, porque **la nota es el hecho**.
-- **La bitácora es inmutable**: `updating`/`deleting` lanzan excepción. Si algo se deshizo, se registra el hecho contrario (`cobro` → `cobro-anulado`); antes `cancelarCobros()` borraba las filas como si el cobro nunca hubiera existido.
-- **`cambios` es siempre `[antes, después]`**: crear es `[null, valor]` y borrar `[valor, null]`. Lo pinta un solo componente, `x-bitacora-cambios`, en las tres pantallas.
-- **Un par equivalente no es un cambio**: `0`/`false` o `"100.00"`/`100` se descartan. Medido: sin ese filtro, abrir el modal de un teléfono y guardar sin tocar nada dejaba una fila `disponible_catalogo: 0 → false`.
-- **El SQL crudo es invisible para el Observer.** `StockRepuestoService` mueve stock con `DB::statement`/`DB::update`, así que un ajuste de stock hay que registrarlo a mano con `registrar()` (lo hace `RepuestoStockSucursalTrait`). Un `update()` del query builder tampoco dispara nada.
-- **Nunca registra** `updated_at`, contraseñas, tokens 2FA, `clave_idempotencia` ni `repuestos.cantidad` (el total cacheado: inundaría el historial con el eco de cada venta). Un modelo amplía la lista con `$auditarExcluye`.
-- **`auditable_id` no tiene FK, a propósito**: borrar el sujeto no se lleva su historia. Las seis FK de contexto (`venta_id`, `producto_reparacion_id`...) van en `set null`.
+- **`anotar()` va ANTES del save, nunca después.** Si el save no cambia ninguna columna, Eloquent no dispara `updated`; el Observer escucha también `saved`, porque **la nota es el hecho**.
+- **La bitácora es inmutable**: `updating`/`deleting` lanzan excepción. Lo deshecho se registra como el hecho contrario (`cobro` → `cobro-anulado`, `baja` → `baja-revertida`, `regalo` → `regalo-quitado`).
+- **`cambios` es siempre `[antes, después]`**; lo pinta un solo componente, `x-bitacora-cambios`. Un par equivalente (`0`/`false`, `"100.00"`/`100`) no es un cambio.
+- **El SQL crudo es invisible para el Observer.** `StockService` mueve stock con `DB::statement`/`DB::update`, así que un ajuste, una transferencia o una baja de stock se registran a mano con `Bitacora::registrar()` (lo hacen `ArticuloStockSucursalTrait` y `BajaService`).
+- **Nunca registra** `updated_at`, contraseñas, tokens 2FA, `clave_idempotencia` ni los totales cacheados `cantidad` (inundarían el historial con el eco de cada venta). Un modelo amplía la lista con `$auditarExcluye`.
+- **`auditable_id` no tiene FK, a propósito**: borrar el sujeto no se lleva su historia. Las FK de contexto (`venta_id`, `compra_id`, `producto_reparacion_id`, `repuesto_id`, `accesorio_id`, `sucursal_id`) van en `set null`.
 
-**El `evento` tiene dos familias que no deben mezclarse.** Un estado de `ProductoEstado` (`Vendido`, `Reparacion`...) cuando el hecho **movió** el estado del teléfono; un [BitacoraEvento](app/Enums/BitacoraEvento.php) (`creado`, `editado`, `garantia`, `cobro`...) cuando no. Escribir un estado que no es el real es justo lo que contradecía al auditor: `ProductoReparacionClienteModal` anotaba `'Reparacion'` sobre teléfonos vendidos que entraban por garantía. Y **cuidado con la colación**: `utf8mb4_unicode_ci` no distingue mayúsculas, así que un evento `'reparacion'` sería **igual** a `'Reparacion'` en un `WHERE`.
+**El `evento` tiene dos familias que no deben mezclarse.** Un estado de `ProductoEstado` cuando el hecho **movió** el estado del teléfono; un [BitacoraEvento](app/Enums/BitacoraEvento.php) (`creado`, `editado`, `garantia`, `cobro`, `baja`, `regalo`, `stock-baja`...) cuando no. El auditor compara la última fila **de estado** con el estado real. Y **cuidado con la colación**: `utf8mb4_unicode_ci` no distingue mayúsculas, así que un evento `'reparacion'` sería **igual** a `'Reparacion'` en un `WHERE`.
 
-La bitácora registra **lo que una persona hizo**; `RepuestoMovimiento` sigue contestando **a dónde fue el stock**. No compiten, y por eso el historial del repuesto tiene dos pestañas.
+La bitácora registra **lo que una persona hizo**; `MovimientoStock` contesta **a dónde fue el stock**. No compiten, y por eso el historial de un artículo tiene dos pestañas.
 
 ### Sucursales y usuarios: se desactivan, no se borran
 
-Casi todas las FK hacia `sucursales` y hacia `users` son `nullOnDelete`: borrar una sucursal o un vendedor **no falla**, deja sus ventas sin sucursal o sin vendedor en silencio. Por eso los dos modales de eliminar cuentan los movimientos antes (`Sucursal::cantidadMovimientos()`, `User::cantidadMovimientos()`) y, si hay alguno, la única salida es **desactivar** (docs/01).
+Casi todas las FK hacia `sucursales` y hacia `users` son `nullOnDelete`: borrar una sucursal o un vendedor **no falla**, deja sus ventas sin sucursal o sin vendedor en silencio. Por eso los modales de eliminar cuentan los movimientos antes (`Sucursal::cantidadMovimientos()`, `User::cantidadMovimientos()`) y, si hay alguno, la única salida es **desactivar** (docs/01).
 
-- **Sucursal inactiva**: deja de ofrecerse al **cargar** algo — los selects de alta usan `Sucursal::activas()` y su regla es `exists:sucursales,id,activa,1`, porque esconder la opción no protege nada —. Los **filtros** de tablas y reportes siguen con todas: sus ventas viejas no desaparecen. Un select de **edición** usa `Sucursal::paraSelect($actualId)` (activas + la del registro) para no perder la sucursal de algo viejo.
-- **El Almacén** (`Sucursal::ALMACEN`) es obligatorio: el código lo busca **por nombre** (la reparación terminada se muda ahí). Lo siembra `SucursalSeeder`, y la pantalla no deja eliminarlo, desactivarlo ni renombrarlo, también en el servidor.
-- **Usuario inactivo**: no entra (`Fortify::authenticateUsing` en `FortifyServiceProvider`, que corre antes del paso 2FA) y pierde la sesión abierta (`UsuarioActivo`, en el grupo `web` de `bootstrap/app.php`; sin él, desactivar a alguien no lo sacaba hasta que caducara su sesión o su cookie de "recordarme"). `User::desactivar()` además borra sus filas de `sessions`. Desactivar tiene permiso propio, `user.desactivar`, y nadie puede desactivarse a sí mismo.
-- **No hay registro público ni autoborrado de cuenta** (comentados en `config/fortify.php` y `config/jetstream.php`): los usuarios los da de alta el administrador, y borrarse desde el perfil saltaba la regla de arriba.
-- **No hay usuarios por sucursal**: todos ven y operan todo.
+- **Sucursal inactiva**: deja de ofrecerse al **cargar** algo — los selects de alta usan `Sucursal::activas()` y su regla es `exists:sucursales,id,activa,1` —. Los **filtros** siguen con todas. Un select de **edición** usa `Sucursal::paraSelect($actualId)`.
+- **El Almacén** (`Sucursal::ALMACEN`, `Sucursal::almacenId()`) es obligatorio: el código lo busca **por nombre**. Lo siembra `SucursalSeeder`, y no se puede eliminar, desactivar ni renombrar, también en el servidor.
+- **Usuario inactivo**: no entra (`Fortify::authenticateUsing`) y pierde la sesión abierta (middleware `UsuarioActivo`). `User::desactivar()` borra sus `sessions`. Permiso propio `user.desactivar`; nadie se desactiva a sí mismo.
+- **No hay registro público ni autoborrado de cuenta**, ni **usuarios por sucursal**: todos ven y operan todo.
 
 ### Idempotencia: reintentar un guardado no crea un segundo documento
 
-El fallo: se registra una venta, el servidor hace COMMIT, y la respuesta no llega —se cortó la red, o el celular perdió señal a mitad del guardado—. El usuario no ve nada y reintenta. Antes pasaba una de dos, las dos malas: o se creaba una **segunda venta del mismo teléfono**, o el reintento moría con *"el producto ya no está disponible"*, un mensaje que habla del producto y no del guardado. En los dos casos el usuario concluye que la orden no se guardó.
-
-Dos capas, con el reparto que ya documentaba `RepuestosDeReparacionService` para `vrd_reparacion_repuesto_unique` (*"quien impide de verdad el doble cobro es el índice"*):
+El fallo: se registra una venta, el servidor hace COMMIT, y la respuesta no llega (el celular perdió señal). El usuario reintenta. Sin protección se creaba una **segunda venta**, o el reintento moría con *"el producto ya no está disponible"*, que habla del producto y no del guardado.
 
 | Capa | Para qué | Quién |
 |---|---|---|
 | **Precondición** | que no se escriba dos veces | el índice `UNIQUE` y el `SELECT ... FOR UPDATE` |
 | **Comodidad** | que el reintento vea «ya se guardó: #124» | un `SELECT` por la clave, antes de abrir la transacción |
 
-[GuardadoIdempotenteTrait](app/Traits/GuardadoIdempotenteTrait.php) lo implementa: `#[Locked] public string $claveIdempotencia` sembrada con `nuevaClaveIdempotencia()` **en `mount()` o al abrir el modal, nunca en `render()`** (ahí cambiaría entre el intento y el reintento, que es justo lo que hay que evitar), y luego `yaGuardado()` antes de la transacción y `esClaveDuplicada()` en el `catch (QueryException)`. Es correcto en los dos órdenes: si la otra petición commitea, InnoDB nos hace esperar en el índice, nos rechaza con 1062, nuestra transacción ya revirtió entera y releer encuentra la suya.
+[GuardadoIdempotenteTrait](app/Traits/GuardadoIdempotenteTrait.php): `#[Locked] public string $claveIdempotencia` sembrada con `nuevaClaveIdempotencia()` **en `mount()`, nunca en `render()`**, `yaGuardado()` antes de la transacción y `esClaveDuplicada()` (busca `clave_idem` en el nombre del índice) en el `catch (QueryException)`. Lo usan `VentaForm` y `CompraForm` al crear. La edición va por **clave natural** (`vd_venta_articulo_unico` / `cd_compra_articulo_unico`) y el alta de teléfonos por el IMEI.
 
-Lo usan `VentaCreate`, `CompraCreateModal`, `VentaRepuestoCreate`, `CompraRepuestoCreate` y la rama Vendido de `ProductoEstadoModal`. Dos casos van por **clave natural** en lugar de sintética, porque no crean cabecera: `VentaEdit` por el par `(venta_id, producto_id)` y el alta de teléfonos por el IMEI.
+### El lector de códigos: la cámara imita a la pistola
 
-### El cliente: una ficha y un texto congelado, con una regla de lectura
+La pistola USB "teclea" el código y aprieta Enter. La cámara del celular hace **exactamente lo mismo**, así que el servidor tiene un solo camino para las dos.
 
-`ventas.cliente_id` y `ventas_repuestos.cliente_id` enlazan con la ficha. **Y las dos columnas de texto `cliente` siguen ahí**, a propósito: son el archivo de lo que se escribió en el momento de la operación, igual que `ventas_repuestos_detalles.tipo`. Se escriben en el `create()` con el nombre que tenía la ficha y **nunca se actualizan**.
+- **Un solo lector**, en el layout: [x-escaner-overlay](resources/views/components/escaner-overlay.blade.php) + el Alpine `escaner` de [app.js](resources/js/app.js). [escaner.js](resources/js/escaner.js) se carga con `import()` al abrirlo. Usa el `BarcodeDetector` nativo donde existe y, si no, `barcode-detector/ponyfill` (zxing-wasm). **El `.wasm` sale de `public/build`** (`?url` de Vite + `prepareZXingModule`), no del CDN por defecto de la librería.
+- Cada campo va en un contenedor `data-escaner` con su `<input>` y un [x-boton-escaner](resources/views/components/boton-escaner.blade.php). `modo="enter"` (buscadores: escribe y dispara Enter) o `modo="input"` (un `wire:model` común: dispara input y change, y luego Enter). `continuo` deja la cámara abierta para leer varios.
+- **El Enter de un buscador manda `$el.value`, no la propiedad**: `x-on:keydown.enter.prevent="$wire.metodo($el.value); $el.value = ''"`. El `wire:model.live.debounce` todavía no tiene el código cuando llega el Enter de la pistola, y el servidor recibía el campo vacío o a medias.
+- La regla del Enter es **un código exacto y único elige; si no, queda la lista** ([EligePorCodigoTrait](app/Traits/EligePorCodigoTrait.php), y `porCodigo()` en la venta). Se compara sobre las filas que el componente **ya filtró**, para no saltarse sus reglas. El UPC de la caja de un teléfono es del modelo y no elige solo: el IMEI sí.
+- **Un campo de código no lleva `wire:model.live` sin debounce**: la pistola teclea 15 dígitos y cada uno era una petición. El IMEI del alta de equipo va con `.change`, y su Enter salta de campo y nunca guarda.
+- La búsqueda de las tablas gana el botón con `public bool $buscarConEscaner = true` (plantilla publicada `vendor/livewire-tables/.../search-field.blade.php`).
+- La cámara **exige HTTPS** (`window.isSecureContext`); `localhost` cuenta como seguro. El overlay va en `z-[70]`, encima de los modales: su `x-trap.inert` solo pone `aria-hidden` afuera, así que los toques llegan.
 
-Eso deja dos fuentes para el mismo dato, así que la regla no puede quedar al criterio de cada blade:
+### El cliente: una ficha y un texto congelado
+
+`ventas.cliente_id` enlaza con la ficha, y la columna de texto `ventas.cliente` sigue ahí como **archivo** de lo que se escribió: se llena en el `create()` y nunca se actualiza.
 
 > **La ficha es lo que se muestra y por lo que se navega; el texto es el archivo.**
 
-Y vive en **un solo sitio**: `Venta::nombreCliente()` y `VentaRepuesto::nombreCliente()`, que hacen `$this->fichaCliente?->nombre ?? $this->cliente`. Los siete puntos que pintan un cliente llaman a ese método; ninguno lee la columna a pelo. Corregirle el nombre a una ficha se ve en **todas** sus ventas; las órdenes anteriores al módulo, que tienen texto pero no ficha, siguen mostrando lo que decían.
+Vive en `Venta::nombreCliente()` (`$this->fichaCliente?->nombre ?? $this->cliente`); ningún blade lee la columna a pelo. **La relación se llama `fichaCliente()` y NO `cliente()`**: `cliente` es una columna, Eloquent resuelve primero los atributos y la relación quedaría inalcanzable. El historial del cliente va **estrictamente por `cliente_id`**. El cliente es **opcional** en la venta (la de mostrador sin ficha es lo normal); lo obligatorio es el `nombre` dentro de la ficha.
 
-- **La relación se llama `fichaCliente()` y NO `cliente()`**, y no es estilo: `cliente` es una columna de esas tablas, Eloquent resuelve primero los atributos, y una relación con ese nombre quedaría **inalcanzable** — `$venta->cliente` seguiría devolviendo el string.
-- **La búsqueda de las tablas mira las dos columnas** (`searchable()` con callback). Solo la de la ficha dejaría de encontrar las ventas viejas.
-- **El historial del cliente va estrictamente por `cliente_id`**: es lo único que sigue a la persona.
-- `RepuestosDeReparacionService` **copia `cliente_id`** además del nombre al crear la venta de repuestos enlazada; sin eso los repuestos cobrados con un teléfono quedarían sin dueño.
+Elegirlo es [ClienteBuscadorTrait](app/Traits/ClienteBuscadorTrait.php) + [x-cliente-picker](resources/views/components/cliente-picker.blade.php): teclear, mirar el catálogo o **crear al vuelo**. El alta despacha **`clienteCreado` y no `refreshClienteTable`**: ese lo despachan también los modales de editar y eliminar **sin argumento**.
 
-El cliente es **opcional** en las cinco puertas de venta: la venta de mostrador sin ficha es el caso normal y obligarlo solo produce fichas basura. Lo obligatorio es el `nombre` **dentro** de la ficha.
+### El dinero: todo en Bs
 
-Elegir el cliente es [ClienteBuscadorTrait](app/Traits/ClienteBuscadorTrait.php) + [x-cliente-picker](resources/views/components/cliente-picker.blade.php), con los tres caminos juntos: teclear, mirar el catálogo, o **crear al vuelo**. El alta despacha **`clienteCreado` y no `refreshClienteTable`**: ese evento lo despachan además los modales de editar y eliminar **sin argumento**, así que un oyente que espere el id reventaría en cuanto coincidieran en pantalla. (`RepuestoCreateModal` sí usa ese piggyback; es frágil y no se copió.)
+**No hay tipo de cambio en ninguna parte del inventario, la compra ni la venta.** El dólar volverá solo como forma de pago de una venta (etapa 5). `ventas.total = subtotal − descuento + mano_obra`, y `costo_total = Σ subtotal_costo + mano_obra`: la mano de obra suma al total **y** al costo, para cancelarse en la ganancia. Los cobros de piezas van con **costo 0** por la misma razón. Las reparaciones: `costo_total = costo (mano de obra) + costo_repuestos`.
 
-`app/Models/ClienteOrden.php` es el **segundo modelo virtual sin tabla**: un `UNION ALL` de `ventas` y `ventas_repuestos` para el historial. Mismas reglas que `RepuestoMovimiento` —diez columnas por posición en las dos ramas, alias del `fromSub` igual a `$table`, `$incrementing = false` por los `wire:key`—. Su rama de repuestos lleva **`whereNull('venta_id')`**: una venta de repuestos enlazada **no es una orden aparte** (lo decidió `ReporteIndex`), pero su **dinero sí** cuenta, y va en la columna `total_repuestos` dentro de la fila del teléfono.
-
-### El dinero
-
-Todo se calcula en **USD**; cada cabecera guarda su propio `tipo_cambio` y el Bs se deriva. En ventas de repuestos la regla es `total_bs = round(total * tipo_cambio, 2) + ajuste_bs`: teclear el Bs define el **ajuste**, nunca la tasa (ver `VentaRepuestoTotalBsTrait`). Antes se despejaba la tasa y quedaban órdenes con tipos de cambio inventados.
-
-`mano_obra` suma al total **y** al costo, para que se cancele en `ganancia = total - costo_total` y las cuatro fórmulas de `ReporteIndex` sigan cuadrando sin tocarlas. Los repuestos cobrados con un teléfono se escriben con **costo 0** por la misma razón.
-
-`ReporteIndex` nunca lee `total_bs`: trabaja sobre los detalles en USD. Antes de tocar dinero, comprueba qué consultas de ese archivo miran la columna que vas a cambiar.
+[ReporteIndex](app/Livewire/Reporte/ReporteIndex.php) es **una familia de consultas** sobre `ventas_detalles` / `compras_detalles` filtrada por `tipo`; el descuento de cabecera se prorratea entre **todas** las líneas de la venta. No hay respaldo de "20 % de ganancia" para equipos sin costo: la línea congela el costo real.
 
 ---
 
@@ -206,32 +240,35 @@ $this->dispatch('refreshProductoTable');           // tras guardar
 $this->dispatch('filtersUpdated', [...]);          // Index -> Table
 ```
 
-**`wire:key` debe llevar el índice** cuando el `wire:model` se enlaza por posición (`detalles.{{ $index }}.precio`). `wire:model` registra su enlace al iniciarse y **no lo desmonta** al cambiar el atributo, así que reutilizar la fila deja vivo el enlace anterior y dos inputs acaban escribiendo en el mismo sitio. Convención: `wire:key="detalle-{{ $id }}-{{ $index }}"`.
+**Repuestos y accesorios comparten pantallas** (`Articulo/*`, `ArticuloHistorial/*`, `StockTransferenciaModal`, `StockBajaModal`, `ArticuloSelectorModal`). El tipo llega por **parámetro de montaje** con `#[Locked]`, nunca por evento: el `filtersUpdated` que despacha `mount()` del índice llega antes de que la tabla exista. Los `@can` salen de `ArticuloTipo::permiso()` (`repuesto.*` / `accesorio.*`).
+
+**`wire:key` debe llevar el índice** cuando el `wire:model` se enlaza por posición (`lineas.{{ $index }}.precio`). `wire:model` no desmonta su enlace al cambiar el atributo, y reutilizar la fila deja dos inputs escribiendo en el mismo sitio. Convención: `wire:key="linea-{{ $id }}-{{ $index }}"`.
 
 **Livewire rehidrata los modelos por id, sin relaciones.** Los `load()` y los catálogos van en `render()`, nunca en `mount()` ni en `openModal()`. Un `if ($this->openModal)` alrededor deja el componente cerrado en 0 consultas.
 
 **Paginación manual** (`->paginate($n, ['*'], 'page', $this->pagina)`) en los modales selectores: `WithPagination` reescribiría el query string de la pantalla de fondo.
 
-**rappasoft/laravel-livewire-tables** solo hace SELECT de los campos declarados como columna: para leer otra columna dentro de un `->format()` hace falta `setAdditionalSelects(['tabla.columna'])`. Las columnas con punto (`venta.id`, `user.name`) unen la relación solas, sin tocar el builder.
+**rappasoft/laravel-livewire-tables** solo hace SELECT de los campos declarados como columna: para leer otra columna dentro de un `->format()` o `->label()` hace falta `setAdditionalSelects(['tabla.columna'])`. Las columnas con punto (`venta.id`, `user.name`) unen una relación `belongsTo` sola; para un `hasOne`/`hasOneThrough` (la compra de un equipo) usa `->label()` con un `with()` en el builder.
 
 ---
 
 ## Trampas conocidas
 
-- **`$fillable` gana a `$guarded`.** Varios modelos (`VentaRepuesto`, `Venta`) declaran los dos. Una columna que falte en `$fillable` la descarta `create()` **en silencio**; ya pasó con `mano_obra`, y volvería a pasar con `clave_idempotencia`: sin esa línea la clave entra como NULL, el índice único admite todos los NULL que quieras y **toda la idempotencia queda inerte sin un solo error que lo delate**.
-- **Los índices únicos son la garantía de verdad, no la regla `unique:`.** Una regla de validación valida con un `SELECT` previo: dos pestañas a la vez la pasan las dos. Los de dominio son `productos.imei`, `ventas_productos.producto_id` (un teléfono no puede estar en dos ventas a la vez; cancelar **borra** la fila, así que revender sigue funcionando), `clave_idempotencia` en las cuatro tablas de documento, `vrd_reparacion_repuesto_unique` y `repuestos_sucursales_unico`.
-- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin venta, ventas vacías, teléfonos en dos ventas, IMEI repetidos, historial en desacuerdo con el estado y el descuadre de `repuestos.cantidad`. El del historial lee la **bitácora**, y solo las filas cuyo evento es un estado: un `editado` o una `garantia` no dicen en qué estado quedó el teléfono. Es el equivalente del banner «el balance calculado no coincide» del historial de repuestos. Hoy reporta **6 historiales desalineados**, que son filas viejas anteriores a `EstadoProductoService` y **no se reescriben a propósito**: son historia. Lo que importa es que ese número no suba.
-- **`Venta::cliente` es una columna, no la relación.** La ficha es `fichaCliente()` y lo que se pinta sale de `nombreCliente()`. Una relación llamada `cliente()` queda tapada por el atributo y no hay forma de llegar a ella.
-- **Dentro de una etiqueta `<x-…>` solo valen `@class` y `@style`.** Cualquier otra directiva —`@disabled`, `@checked`, `@readonly`— impide que `ComponentTagCompiler` compile el componente, y al navegador le llega un `<x-checkbox>` **literal**, que no es nada: ni input, ni `wire:model`, ni nada que clicar. **No salta ningún error**: la página se dibuja entera y el control simplemente no está. Así estuvo el selector de repuestos desde `e1d911c`, sin poder marcar ni una fila en las cuatro pantallas que lo abren. En un componente va `:disabled="$expr"` (atributo enlazado; `ComponentAttributeBag` descarta `false` y `null`); `@disabled(...)` solo sobre HTML plano —`<button>`, `<select>`, `<input>`—. Para comprobarlo: ningún archivo de `storage/framework/views` debe contener la cadena `<x-`.
-- **El Observer no ve lo que no pasa por Eloquent.** `DB::table()->update()`, `DB::statement()` y el `update()` del query builder cambian datos sin dejar fila en la bitácora. Si es un hecho que importa, se registra a mano: así lo hace `RepuestoTipoCambioMasivoModal`, que cambia la tasa de todo el catálogo en un solo `UPDATE` e inserta una fila por artículo que de verdad cambió.
-- **Un modal que regenera campos deja ese cambio en la bitácora.** `CompraLoteProductoEditModal` reescribe la `descripcion` desde los demás campos ante **cualquier** cambio; cambiar solo el precio deja `precio_cliente` **y** `descripcion`. No es ruido: la base cambió de verdad. Hasta la bitácora era invisible.
-- **Tailwind no tiene safelist.** Una clase compuesta (`'bg-' . $color`) nunca se genera. Clases literales en cada rama del ternario, o `style` inline (`Repuesto::getDivColor()`, `Tecnicos::getDivColor()`).
-- **`@can` en el blade solo esconde el botón.** La ruta necesita su `->middleware('can:...')`, y el componente su `abort_unless()`: son las dos capas que protegen de verdad. **Toda ruta de `routes/web.php` lleva hoy su `can:`** con el mismo permiso que el enlace que la abre, y las de `{id}` su `whereNumber('id')`. Hasta hace poco la mayoría no lo llevaba, y `/roles` dejaba a cualquiera con sesión editarse sus propios permisos. Las únicas abiertas son `/` y `/dashboard` (la portada tras el login, que ya saluda a quien no tiene `dashboard.index`), y el catálogo público. El enlace público del técnico se retiró (docs/10). Permisos de spatie, nombrados `modulo.accion` (`venta.create`, `producto.estado-masivo`, `repuesto.historial`).
-- **MySQL corta los identificadores a 64 caracteres** y su DDL **no es transaccional**: una migración que falle a medias deja las columnas creadas y no queda registrada. Nombra explícitamente los índices y claves foráneas largos.
-- **El selector de estado del producto filtra por permiso** (`ProductoEstado::toSelectArrayPermission()`, permisos `producto.estado.<estado>` en minúscula). Un estado nuevo necesita su permiso o desaparece del formulario.
-- **Los modales de crear/editar suelen ser gemelos literales.** Cuando la lógica compartida crezca, el sitio es `app/Traits/` (`VentaCarritoTrait`, `RepuestoAccesorioTrait`, `VentaRepuestoTotalBsTrait`), no una copia más.
-- **`inventario/repuestos` e `inventario/accesorios` son dos pantallas de la misma tabla.** El tipo llega por **parámetro de montaje** con `#[Locked]`, nunca por evento: `RepuestoIndex::mount()` despacha `filtersUpdated` cuando `RepuestoTable` todavía no existe, así que ese primer evento no lo recibe nadie y el primer render mostraría todo el catálogo. Y el filtro usa un `where` estricto, no `scopeDeTipo()`, que trata el vacío como "sin filtro". Los `@can` salen de `RepuestoTipo::permiso()` (`repuesto.*` / `accesorio.*`); `repuesto.historial`, `repuesto.tipo-cambio-masivo` y `repuesto.transferir` quedan **compartidos** a propósito.
-- Los `tipo` de `ventas_repuestos_detalles` y `compras_repuestos_detalles` están **congelados a propósito**: guardan lo que el artículo era en el momento de la operación, para que reclasificarlo no reescriba un periodo cerrado.
+- **`$fillable` gana a `$guarded`.** `Venta` declara `$fillable`: una columna que falte ahí la descarta `create()` **en silencio** (ya pasó con `mano_obra`). Sin `clave_idempotencia` la clave entraría como NULL, el índice único admite todos los NULL y **la idempotencia quedaría inerte sin un solo error**. Las columnas generadas (`tipo`, `articulo_clave`) **no** van ahí.
+- **Un SKU o UPC vacío se guarda como NULL** (`NormalizaCodigosTrait`): con `''` el segundo artículo sin SKU choca con el índice único.
+- **Los índices únicos son la garantía de verdad, no la regla `unique:`.** Los de dominio: `productos.imei`, `productos_sku_unico` (y los de repuestos y accesorios), `ventas_detalles_producto_unico` (un teléfono, una sola venta; anular **borra** la línea, así que revender funciona), `compras_detalles_producto_unico`, `vd_reparacion_repuesto_unico`, `vd_venta_articulo_unico`, `cd_compra_articulo_unico`, `clave_idempotencia` en `ventas` y `compras`, y los dos de `stock_sucursales`.
+- **MySQL prohíbe acciones referenciales en columnas que usa un `CHECK` o una columna generada.** Por eso las FK de artículo y de cabecera de las líneas y del stock van en **RESTRICT**: borrar un artículo con movimientos lo impide el código con un mensaje claro, no una cascada.
+- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
+- **`Venta::cliente` es una columna, no la relación.** La ficha es `fichaCliente()` y lo que se pinta sale de `nombreCliente()`.
+- **Dentro de una etiqueta `<x-…>` solo valen `@class` y `@style`.** Cualquier otra directiva —`@disabled`, `@checked`— impide que `ComponentTagCompiler` compile el componente, y al navegador le llega un `<x-checkbox>` **literal**, sin ningún error. En un componente va `:disabled="$expr"`; `@disabled(...)` solo sobre HTML plano. Para comprobarlo: tras `php artisan view:cache`, ningún archivo de `storage/framework/views` debe contener `<x-`.
+- **El Observer no ve lo que no pasa por Eloquent.** `DB::table()->update()`, `DB::statement()` y el `update()` del query builder no dejan fila en la bitácora. Si el hecho importa, se registra a mano.
+- **Un modal que regenera campos deja ese cambio en la bitácora.** `CompraLoteProductoEditModal` reescribe la `descripcion` ante cualquier cambio: no es ruido, la base cambió de verdad.
+- **Tailwind no tiene safelist.** Una clase compuesta (`'bg-' . $color`) nunca se genera. Clases literales en cada rama (`ProductoTipoVenta::badgeClasses()`, `LineaTipo::badgeClasses()`), o `style` inline (`ProductoEstado::color()`, `Tecnicos::getDivColor()`).
+- **`@can` en el blade solo esconde el botón.** La ruta lleva su `->middleware('can:...')` (las de `{id}` además `whereNumber('id')`) y el componente su `abort_unless()`. Las únicas rutas abiertas son `/`, `/dashboard` y el catálogo público. Permisos de spatie, `modulo.accion`; `PermissionSeeder` le da todos al Administrador.
+- **El selector de estado filtra por permiso** (`producto.estado.<estado>` en minúscula) y quita los de `soloPorDocumento()`. Un estado nuevo necesita su permiso, su caso en el enum y `migrate:fresh` (el enum alimenta el DDL de la columna).
+- **MySQL corta los identificadores a 64 caracteres** y su DDL **no es transaccional**. Nombra explícitamente índices, FK y `CHECK` (la convención del repo: `vd_*`, `cd_*`, `sb_*`, `prr_*`).
+- **La lógica compartida vive en `app/Traits/`** (`CarritoBuscadorTrait`, `ArticuloStockSucursalTrait`, `PiezasCobradasTrait`, `ArticuloDeStockTrait`), no en una copia más. El fallo recurrente del repo heredado fue la copia que divergió.
+- Los `tipo` y `tipo_venta` de las líneas de venta y compra son **históricos a propósito**: guardan lo que el artículo era al operar, para que reclasificarlo no reescriba un período cerrado.
 
 ## Estilo
 

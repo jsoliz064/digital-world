@@ -25,6 +25,24 @@ No hay comprobante impreso, no hay forma de registrar cómo se pagó, y no hay v
 
 ## Qué cambia
 
+### Una sola venta para todo
+
+Las dos pantallas se unifican: **una venta es una sola orden**, con un solo número de nota, y cada línea es lo que se vendió:
+
+| Línea | Cantidad |
+|---|---|
+| **Equipo** | Siempre 1 (es una ficha con IMEI) |
+| **Repuesto** | La que se venda, descuenta stock de la sucursal |
+| **Accesorio** | La que se venda, descuenta stock de la sucursal |
+
+Un solo buscador encuentra los tres por **IMEI, UPC, SKU o nombre**; con la pistola lectora, un código exacto agrega la línea solo.
+
+Los repuestos que se le montaron a un teléfono en el taller se cobran como **una línea más de la misma venta**, sin descontar stock de nuevo (ya se descontó al repararlo). La mano de obra, cuando la hay, va en la cabecera de la venta.
+
+El cliente se elige de su ficha (o se crea en el momento); es opcional, porque la venta de mostrador sin ficha es lo normal.
+
+La venta se hace **solo desde la pantalla de ventas**. Desde el cambio de estado de un equipo hay un botón «Vender» que abre la venta con ese equipo ya cargado.
+
 ### La moneda
 
 La venta se registra en **bolivianos**. Si el cliente paga en dólares, se marca la venta como **transacción en USD**: se anota el tipo de cambio de ese momento y el método de pago. El sistema guarda las dos cifras para que la caja cuadre.
@@ -105,7 +123,7 @@ Días después, al concretar
 
 ### Dar de baja
 
-Desde la venta se puede dar de baja lo que se dañó o se perdió, tanto equipos como accesorios. El detalle está en [Inventario](02-inventario.md#dar-de-baja).
+La baja de equipos y de unidades de repuestos o accesorios se hace desde el inventario, no desde la venta. El detalle está en [Inventario](02-inventario.md#dar-de-baja).
 
 ### La nota de venta
 
@@ -145,6 +163,8 @@ Se imprime un comprobante en **rollo térmico de 80mm**, con:
 ### El escáner en la venta
 
 Al cargar los ítems de la venta se puede **escanear el código de barras** en lugar de buscar por nombre: con la cámara del celular o con la pistola USB. Funciona igual para equipos, repuestos y accesorios.
+
+Para un teléfono, **conviene escanear el IMEI de la caja**: lo agrega directo. El otro código de barras de la caja es del modelo y lo comparten todos los equipos iguales, así que muestra la lista para elegir cuál.
 
 ### La comisión del vendedor
 
@@ -197,6 +217,7 @@ Venta completa, con todo junto
 
 ## Entregables
 
+0. Venta unificada: equipos, repuestos y accesorios en la misma orden, con un solo buscador por IMEI, UPC, SKU o nombre.
 1. Venta en bolivianos, con opción de marcarla como transacción en dólares (tipo de cambio y método de pago).
 2. Módulo de métodos de pago, administrable por el negocio.
 3. Cobro con varios métodos de pago en una misma venta.
@@ -205,5 +226,5 @@ Venta completa, con todo junto
 6. Flujo de reserva: seña, bloqueo del equipo y descuento al concretar.
 7. Nota de venta en rollo térmico de 80mm.
 8. Escáner de código de barras en la carga de la venta (cámara y pistola).
-9. Baja de equipos y accesorios con motivo.
+9. Baja de equipos y accesorios con motivo (desde el inventario).
 10. Cálculo y registro de la comisión del vendedor en cada venta.

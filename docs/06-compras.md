@@ -24,6 +24,15 @@ No hay estado de compra, no hay forma de reclamar al proveedor, y no hay registr
 
 ## Qué cambia
 
+### Una sola compra para todo
+
+Las dos pantallas se unifican: **una compra es una sola orden** con su fecha, proveedor (obligatorio), sucursal de ingreso y usuario que la registró. Cada línea es lo que llegó:
+
+- **Equipos**: uno por línea, cargados desde el detalle de la compra con su IMEI, UPC, SKU, grado, tipo de venta, costo y fotos. La carga de corrido de varios equipos del mismo modelo se mantiene.
+- **Repuestos y accesorios**: con su cantidad y su costo; el stock de la sucursal sube solo.
+
+El total de la compra es la suma de sus líneas. Quitar un equipo o una línea lo recalcula; una compra cuyos artículos ya se vendieron no se puede borrar.
+
 ### Todo en bolivianos
 
 La compra se registra en Bs, sin tipo de cambio de por medio, igual que el resto del inventario.
@@ -91,6 +100,8 @@ Es el mismo mecanismo que las cobranzas de clientes, pero del otro lado del most
 
 Al cargar los equipos de una compra se puede **escanear el código de barras** en lugar de teclearlo, con la cámara del celular o con la pistola USB. Vale igual para repuestos y accesorios.
 
+En la carga de un equipo, el Enter de la pistola **nunca guarda**: pasa al campo siguiente, en el orden en que se leen las etiquetas de la caja (código de barras, IMEI, batería). Con «Guardar y continuar», el cursor vuelve al código de barras para el equipo siguiente.
+
 ---
 
 ## Cómo queda el trabajo diario
@@ -126,6 +137,7 @@ Llega una compra de 20 equipos
 
 ## Entregables
 
+0. Compra unificada: equipos, repuestos y accesorios en la misma orden, con proveedor, sucursal y usuario.
 1. Compras en bolivianos, quitando el tipo de cambio de la carga.
 2. Estado de la compra (Recibida, Con reclamo, Resuelta).
 3. Marcado de equipos fallados con motivo, y su salida del inventario vendible.
