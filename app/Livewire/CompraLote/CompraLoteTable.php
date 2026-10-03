@@ -18,6 +18,9 @@ class CompraLoteTable extends DataTableComponent
     protected $model = Producto::class;
     public $compraId; // Add this property
 
+    /** Boton de camara en la busqueda (vendor/livewire-tables/.../search-field). */
+    public bool $buscarConEscaner = true;
+
     public function mount($compraId)
     {
         $this->compraId = is_numeric($compraId) ? (int) $compraId : null;
@@ -25,8 +28,8 @@ class CompraLoteTable extends DataTableComponent
 
     public function configure(): void
     {
-        $this->setPrimaryKey('id');
-        // $this->setDefaultSort('created_at', 'desc');
+        $this->setPrimaryKey('id')
+            ->setSearchPlaceholder('Buscar por modelo, IMEI, SKU o código de barras...');
     }
 
     public function filters(): array
@@ -40,7 +43,7 @@ class CompraLoteTable extends DataTableComponent
                     }
                     $builder->whereIn('estado', $values);
                 })
-                ->setFilterDefaultValue(['Inventario', 'Oferta', 'Reparacion', 'Fuera', 'Roto']),
+                ->setFilterDefaultValue(array_values(array_diff(ProductoEstado::values(), ProductoEstado::vendidos()))),
             MultiSelectDropdownFilter::make('Modelos')
                 ->options(
                     ProductoModelo::orderBy('nombre', 'asc')
@@ -88,9 +91,13 @@ class CompraLoteTable extends DataTableComponent
                 ->sortable(),
             Column::make("Version", "version")
                 ->sortable(),
+            // IMEI parcial; SKU y UPC exactos, que es lo que lee la pistola.
             Column::make("Imei", "imei")
                 ->sortable()
-                ->searchable(),
+                ->searchable(fn(Builder $q, $term) => $q
+                    ->orWhere('productos.imei', 'like', '%' . $term . '%')
+                    ->orWhere('productos.sku', trim($term))
+                    ->orWhere('productos.upc', trim($term))),
             Column::make("Batería(%)", "bateria_porcentaje")
                 ->sortable()
                 ->format(function ($value) {
@@ -119,16 +126,18 @@ class CompraLoteTable extends DataTableComponent
                         'canChangeState' => $canChangeState,
                     ]);
                 }),
+            Column::make("Grado", "estado_grado")
+                ->sortable()
+                ->format(fn($value) => \App\Enums\ProductoGrado::labelDe($value)),
+            Column::make("Costo", "costo_total")
+                ->sortable()
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
             Column::make("Precio V.", "precio_vendedor")
                 ->sortable()
-                ->format(function ($value) {
-                    return '$ ' . number_format($value, 2);
-                }),
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
             Column::make("Precio C.", "precio_cliente")
                 ->sortable()
-                ->format(function ($value) {
-                    return '$ ' . number_format($value, 2);
-                }),
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
             Column::make("Registrado", "created_at")
                 ->sortable(),
             Column::make("Sucursal", "sucursal.nombre")
@@ -136,7 +145,7 @@ class CompraLoteTable extends DataTableComponent
             Column::make("Fecha Venta.", "id")
                 ->sortable()
                 ->format(function ($value, $row) {
-                    return $row->ventaProducto ? $row->ventaProducto->created_at : '-';
+                    return $row->ventaDetalle ? $row->ventaDetalle->created_at->format('d/m/Y') : '-';
                 }),
             Column::make('Acciones', 'id')
                 ->format(function ($value, $row, Column $column) {
@@ -148,6 +157,7 @@ class CompraLoteTable extends DataTableComponent
     }
 
     #[On('refreshProductoTable')]
+    #[On('refreshCompraDetalle')]
     public function refreshCompraLoteTable()
     {
         $this->builder();
@@ -156,8 +166,8 @@ class CompraLoteTable extends DataTableComponent
     public function openCompraLoteProductoEditModal($id)
     {
         $producto = Producto::find($id);
-        if (!$producto->estaDisponible() && $producto->estado !== ProductoEstado::Transito->value) {
-            toastr()->error('El producto debe estar en el inventario o en transito');
+        if (in_array($producto->estado, ProductoEstado::vendidos(), true) || $producto->estaDadoDeBaja()) {
+            toastr()->error('El equipo ya está vendido o dado de baja: no se edita desde la compra.');
             return;
         }
         $this->dispatch('openCompraLoteProductoEditModal', $id);
@@ -165,11 +175,6 @@ class CompraLoteTable extends DataTableComponent
 
     public function openCompraLoteProductoDestroyModal($id)
     {
-        $producto = Producto::find($id);
-        if (!$producto->estaDisponible()) {
-            toastr()->error('El producto debe estar en el inventario');
-            return;
-        }
         $this->dispatch('openCompraLoteProductoDestroyModal', $id);
     }
 
@@ -185,8 +190,10 @@ class CompraLoteTable extends DataTableComponent
             return Producto::query()->where('id', -1);
         }
 
+        // Los equipos de la compra, por su linea (productos ya no tiene compra_id).
         return Producto::query()
-            ->where('compra_id', $this->compraId)
-            ->orderBy('created_at', 'desc');
+            ->with('ventaDetalle')
+            ->whereHas('compraDetalle', fn($q) => $q->where('compra_id', $this->compraId))
+            ->orderBy('productos.created_at', 'desc');
     }
 }

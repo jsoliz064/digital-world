@@ -6,14 +6,8 @@ use Livewire\Component;
 
 class CompraIndex extends Component
 {
-
     public function render()
     {
         return view('livewire.compra.compra-index');
-    }
-
-    public function openCompraCreateModal()
-    {
-        $this->dispatch('openCompraCreateModal');
     }
 }

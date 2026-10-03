@@ -7,6 +7,12 @@
             </x-slot>
 
             <x-slot name="content">
+                {{-- La pistola "teclea" el codigo y manda Enter. Aqui el Enter
+                     nunca guarda: salta al campo siguiente (SKU -> codigo de
+                     barras -> IMEI -> bateria), que es el orden en que se leen
+                     las etiquetas de la caja. Tras "Guardar y continuar" el foco
+                     vuelve al codigo de barras para el equipo siguiente. --}}
+                <div x-data x-on:compra-equipo-guardado.window="$nextTick(() => $el.querySelector('#upc')?.focus())">
                 <div class="space-y-6">
                     <div class="grid grid-cols-1 gap-6">
 
@@ -32,7 +38,7 @@
                                     @foreach ($selectedModel->almacenamientos as $storage)
                                         <option value="{{ $storage->almacenamiento }}"
                                             @if ($almacenamiento == $storage->almacenamiento) selected @endif>
-                                            {{ $storage->almacenamiento }} - ${{ number_format($storage->precio, 2) }}
+                                            {{ $storage->almacenamiento }} - Bs {{ number_format($storage->precio, 2) }}
                                         </option>
                                     @endforeach
                                 @else
@@ -61,34 +67,34 @@
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
                             <div>
-                                <x-label for="costo_unidad" value="Costo Unitario ($) *" />
+                                <x-label for="costo_unidad" value="Costo (Bs) *" />
                                 <x-input wire:model.lazy="costo_unidad" id="costo_unidad" type="number" step="0.01"
-                                    class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-                                       focus:border-brand-500 focus:ring-brand-500"
-                                    onfocus="this.select()" placeholder="0.00" />
+                                    class="mt-2 block w-full h-10" onfocus="this.select()" placeholder="0.00" />
                                 <x-input-error for="costo_unidad" class="mt-1" />
                             </div>
                             <div>
-                                <x-label for="costo_envio" value="Costo Envío ($) *" />
-                                <x-input wire:model.lazy="costo_envio" id="costo_envio" type="number" step="0.01"
-                                    class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-                                       focus:border-brand-500 focus:ring-brand-500"
-                                    onfocus="this.select()" placeholder="0.00" />
-                                <x-input-error for="costo_envio" class="mt-1" />
+                                <x-label for="sku" value="SKU (opcional)" />
+                                <div class="mt-2 flex gap-2" data-escaner>
+                                    <x-input wire:model="sku" id="sku" type="text" class="block w-full h-10" placeholder="Código interno"
+                                        x-on:keydown.enter.prevent="$el.closest('.jetstream-modal')?.querySelector('#upc')?.focus()" />
+                                    <x-boton-escaner modo="input" />
+                                </div>
+                                <x-input-error for="sku" class="mt-1" />
                             </div>
                             <div>
-                                <x-label for="costo_total" value="Costo Total ($) *" />
-                                <x-input wire:model="costo_total" id="costo_envio" type="number"
-                                    class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-                                       focus:border-brand-500 focus:ring-brand-500"
-                                    disabled="true" />
-                                <x-input-error for="costo_envio" class="mt-1" />
+                                <x-label for="upc" value="Código de barras (opcional)" />
+                                <div class="mt-2 flex gap-2" data-escaner>
+                                    <x-input wire:model="upc" id="upc" type="text" class="block w-full h-10" placeholder="Escanee o escriba"
+                                        x-on:keydown.enter.prevent="$el.closest('.jetstream-modal')?.querySelector('#imei')?.focus()" />
+                                    <x-boton-escaner modo="input" />
+                                </div>
+                                <x-input-error for="upc" class="mt-1" />
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
                             <div>
-                                <x-label for="precio_vendedor" value="Precio Vendedor ($) *" />
+                                <x-label for="precio_vendedor" value="Precio Vendedor (Bs) *" />
                                 <x-input wire:model="precio_vendedor" id="precio_vendedor" type="number" step="0.01"
                                     class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
                                        focus:border-brand-500 focus:ring-brand-500"
@@ -96,7 +102,7 @@
                                 <x-input-error for="precio_vendedor" class="mt-1" />
                             </div>
                             <div>
-                                <x-label for="precio_cliente" value="Precio Cliente ($) *" />
+                                <x-label for="precio_cliente" value="Precio Cliente (Bs) *" />
                                 <x-input wire:model="precio_cliente" id="precio_cliente" type="number" step="0.01"
                                     class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
                                        focus:border-brand-500 focus:ring-brand-500"
@@ -153,10 +159,16 @@
 
                         <div class="animate-fade-in">
                             <x-label for="imei" value="IMEI *" />
-                            <x-input wire:model.live="imei" id="imei" type="text"
-                                class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-                                       focus:border-brand-500 focus:ring-brand-500"
-                                placeholder="Ingrese al menos 4 digitos" />
+                            {{-- wire:model.change y no .live: la pistola teclea 15 digitos y
+                                 cada uno era una peticion (la descripcion se regenera). --}}
+                            <div class="mt-2 flex gap-2" data-escaner>
+                                <x-input wire:model.change="imei" id="imei" type="text"
+                                    class="block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
+                                           focus:border-brand-500 focus:ring-brand-500"
+                                    placeholder="Escanee o escriba el IMEI" inputmode="numeric" autocomplete="off"
+                                    x-on:keydown.enter.prevent="$el.closest('.jetstream-modal')?.querySelector('#bateria_porcentaje')?.focus()" />
+                                <x-boton-escaner modo="input" />
+                            </div>
                             <x-input-error for="imei" class="mt-1" />
                         </div>
 
@@ -174,32 +186,27 @@
                             <x-input-error for="bateria_porcentaje" class="mt-1" />
                         </div>
 
-                        <div class="animate-fade-in">
-                            <x-label for="estado_grado" value="Condición del Producto *" />
-                            <select wire:model.live="estado_grado" id="estado_grado"
-                                class="mt-2 block w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-               focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm transition-all duration-200 h-10">
-                                <option value="">Seleccione una condición</option>
-                                <option value="A+" @if ($estado_grado == 'A+') selected @endif>
-                                    A+
-                                </option>
-                                <option value="A" @if ($estado_grado == 'A') selected @endif>
-                                    A
-                                </option>
-                                <option value="AB" @if ($estado_grado == 'AB') selected @endif>
-                                    AB
-                                </option>
-                                <option value="B" @if ($estado_grado == 'B') selected @endif>
-                                    B
-                                </option>
-                                <option value="C" @if ($estado_grado == 'C') selected @endif>
-                                    C
-                                </option>
-                                <option value="D" @if ($estado_grado == 'D') selected @endif>
-                                    D
-                                </option>
-                            </select>
-                            <x-input-error for="estado_grado" class="mt-1" />
+                        <div class="animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="estado_grado" value="Grado *" />
+                                <select wire:model.live="estado_grado" id="estado_grado"
+                                    class="mt-2 block w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm h-10">
+                                    @foreach (\App\Enums\ProductoGrado::cases() as $g)
+                                        <option value="{{ $g->value }}">{{ $g->label() }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="estado_grado" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="tipo_venta" value="Tipo de venta *" />
+                                <select wire:model.live="tipo_venta" id="tipo_venta"
+                                    class="mt-2 block w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm h-10">
+                                    @foreach (\App\Enums\ProductoTipoVenta::cases() as $t)
+                                        <option value="{{ $t->value }}">{{ $t->label() }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="tipo_venta" class="mt-1" />
+                            </div>
                         </div>
 
                         <div class="animate-fade-in">
@@ -207,13 +214,11 @@
                             <select wire:model.live="status" id="status"
                                 class="mt-2 block w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
                                        focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm transition-all duration-200 h-10">
-                                <option value="Inventario">Inventario</option>
-                                <option value="Oferta">Oferta</option>
-                                <option value="Reparacion">Reparacion</option>
-                                <option value="Roto">Roto</option>
-                                <option value="Transito">Transito</option>
+                                @foreach ($estadosAlta as $e)
+                                    <option value="{{ $e->value }}">{{ $e->label() }}</option>
+                                @endforeach
                             </select>
-                            <x-input-error for="estado" class="mt-1" />
+                            <x-input-error for="status" class="mt-1" />
                         </div>
 
                         <div class="animate-fade-in">
@@ -246,8 +251,7 @@
                             </div>
                         </div>
 
-                        {{-- Inventario y Oferta: un equipo que entra directo a oferta es
-                             justamente el que se quiere fotografiar para el catalogo. --}}
+                        {{-- Solo los disponibles: son los que se fotografian para el catalogo. --}}
                         @if (in_array($status, \App\Enums\ProductoEstado::disponibles(), true))
                             <div class="animate-fade-in">
                                 <x-label value="Fotos del Producto" />
@@ -384,6 +388,7 @@
                 </div>
 
 
+                </div>
             </x-slot>
 
             <x-slot name="footer">

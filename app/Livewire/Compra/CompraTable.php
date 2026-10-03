@@ -2,68 +2,66 @@
 
 namespace App\Livewire\Compra;
 
-use App\Enums\ProductoEstado;
-use Rappasoft\LaravelLivewireTables\DataTableComponent;
-use Rappasoft\LaravelLivewireTables\Views\Column;
+use App\Enums\LineaTipo;
 use App\Models\Compra;
 use Carbon\Carbon;
-use Livewire\Attributes\On;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
+use Rappasoft\LaravelLivewireTables\DataTableComponent;
+use Rappasoft\LaravelLivewireTables\Views\Column;
 
+/** El listado de compras: una por documento, con equipos y articulos juntos. */
 class CompraTable extends DataTableComponent
 {
     protected $model = Compra::class;
 
     public function configure(): void
     {
-        $this->setPrimaryKey('id');
+        $this->setTableName('compras');
+
+        $this->setPrimaryKey('id')
+            ->setDefaultSort('compras.id', 'desc')
+            ->setSearchPlaceholder('Buscar por proveedor o nº de compra...')
+            ->setEmptyMessage('Todavía no hay compras registradas.');
+    }
+
+    public function builder(): Builder
+    {
+        // Los conteos como subconsulta y no $row->detalles->count() en el format:
+        // eso seria una consulta por fila.
+        return Compra::query()
+            ->withCount([
+                'detalles as equipos' => fn($q) => $q->where('tipo', LineaTipo::Producto->value),
+                'detalles as articulos' => fn($q) => $q->where('tipo', '!=', LineaTipo::Producto->value),
+            ]);
     }
 
     public function columns(): array
     {
         return [
-            Column::make("Id", "id")
-                ->sortable(),
-            Column::make("Proveedor", "proveedor.nombre")
+            Column::make('Nº', 'id')
                 ->sortable()
                 ->searchable(),
-            Column::make("Fecha", "fecha_compra")
+            Column::make('Fecha', 'fecha')
                 ->sortable()
-                ->searchable()
-                ->format(
-                    fn($value) => Carbon::parse($value)->format('d/m/Y')
-                ),
-            Column::make("Tipo de Cambio", "tipo_cambio")
+                ->format(fn($value) => Carbon::parse($value)->format('d/m/Y')),
+            Column::make('Proveedor', 'proveedor.nombre')
                 ->sortable()
-                ->format(
-                    fn($value) => 'Bs. ' . number_format($value, 2)
-                ),
-            Column::make("Costo Total", "costo_total")
+                ->searchable(),
+            Column::make('Sucursal', 'sucursal.nombre')
                 ->sortable()
-                ->format(
-                    fn($value) => '$ ' . number_format($value, 2)
-                ),
-            Column::make("Productos Vendidos", "id")
+                ->collapseOnTablet(),
+            Column::make('Equipos', 'id')
+                ->label(fn($row) => (int) $row->equipos)
+                ->setCustomSlug('equipos'),
+            Column::make('Artículos', 'id')
+                ->label(fn($row) => (int) $row->articulos)
+                ->setCustomSlug('articulos'),
+            Column::make('Total', 'total')
                 ->sortable()
-                ->format(function ($value, $row) {
-                    return $row->productos->where('estado', ProductoEstado::Vendido->value)->count();
-                }),
-            Column::make("Productos Restantes", "id")
-                ->sortable()
-                ->format(function ($value, $row) {
-                    return $row->productos->where('estado', '<>', ProductoEstado::Vendido->value)->count();
-                }),
-            Column::make("Cant. de Productos", "id")
-                ->sortable()
-                ->format(function ($value, $row) {
-                    return $row->productos->count();
-                }),
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
             Column::make('Acciones', 'id')
-                ->format(function ($value, $row, Column $column) {
-                    return view('livewire.compra.actions-buttons', [
-                        'row' => $row
-                    ]);
-                }),
+                ->format(fn($value, $row) => view('livewire.compra.actions-buttons', ['row' => $row])),
         ];
     }
 
@@ -73,20 +71,14 @@ class CompraTable extends DataTableComponent
         $this->builder();
     }
 
-    public function builder(): Builder
+    public function verCompra($id)
     {
-        return Compra::query()
-            ->orderBy('id', 'desc');
+        return redirect()->route('compras.detalle', $id);
     }
 
-    public function AgregarProductosCompra($id)
+    public function editarCompra($id)
     {
-        return redirect()->route('compras.productos', $id);
-    }
-
-    public function openCompraEditModal($id)
-    {
-        $this->dispatch('openCompraEditModal', $id);
+        return redirect()->route('compras.editar', $id);
     }
 
     public function openCompraDestroyModal($id)

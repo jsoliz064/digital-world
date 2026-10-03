@@ -4,11 +4,15 @@ namespace App\Livewire\CompraLote\Modals;
 
 use App\Enums\ProductoColor;
 use App\Enums\ProductoEstado;
+use App\Enums\ProductoGrado;
+use App\Enums\ProductoTipoVenta;
 use App\Enums\ProductoVersion;
 use App\Models\Producto;
 use App\Models\ProductoImagen;
 use App\Models\Sucursal;
+use App\Services\CompraService;
 use App\Services\EstadoProductoService;
+use App\Traits\NormalizaCodigosTrait;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -92,16 +96,21 @@ class CompraLoteProductoEditModal extends Component
         // Exception, asi que el catch de abajo la atrapaba y convertia los
         // errores por campo en un unico addError('general'). El usuario veia
         // "Error: The given data was invalid" sin saber que campo arreglar.
+        $this->producto['sku'] = NormalizaCodigosTrait::normalizarCodigo($this->producto['sku'] ?? null);
+
         $this->validate([
             'producto.almacenamiento' => 'required',
             'producto.color' => 'required',
             'producto.version' => 'nullable',
             'producto.bateria_porcentaje' => 'required|numeric|min:0|max:100',
             'producto.costo_unidad' => 'required|numeric|min:0',
-            'producto.costo_envio' => 'required|numeric|min:0',
+            'producto.sku' => ['nullable', 'string', 'max:50', Rule::unique('productos', 'sku')->ignore($this->producto['id'] ?? null)],
+            'producto.upc' => 'nullable|string|max:50',
+            'producto.tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
             'producto.precio_cliente' => 'required|numeric|min:0',
             'producto.precio_vendedor' => 'required|numeric|min:0',
-            'producto.status' => 'required',
+            // Vendido y Credito solo los escribe una venta.
+            'producto.status' => ['required', Rule::in(array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()))],
             // La unicidad del IMEI tambien al EDITAR: aqui era un 'required' a
             // secas, asi que ponerle a un producto el IMEI de otro se guardaba
             // sin protestar. El ignore del propio id es para que reguardar sin
@@ -115,7 +124,9 @@ class CompraLoteProductoEditModal extends Component
             'producto.disponible_catalogo' => 'required',
             'producto.sin_reparacion' => 'required',
             'producto.sucursal_id' => 'required',
-            'producto.estado_grado' => 'required',
+            'producto.estado_grado' => ['required', Rule::in(ProductoGrado::values())],
+        ], [
+            'producto.sku.unique' => 'Ese SKU ya lo tiene otro equipo.',
         ]);
 
         $estados = app(EstadoProductoService::class);
@@ -141,9 +152,10 @@ class CompraLoteProductoEditModal extends Component
                 'color' => $this->producto['color'],
                 'version' => $this->producto['version'] ?? null,
                 'bateria_porcentaje' => $this->producto['bateria_porcentaje'],
+                'sku' => $this->producto['sku'],
+                'upc' => $this->producto['upc'] ?? null,
                 'costo_unidad' => $this->producto['costo_unidad'],
-                'costo_envio' => $this->producto['costo_envio'],
-                'costo_total' => $this->producto['costo_total'],
+                'tipo_venta' => $this->producto['tipo_venta'],
                 'precio_cliente' => $this->producto['precio_cliente'],
                 'precio_vendedor' => $this->producto['precio_vendedor'],
                 'descripcion' => $this->descripcion,
@@ -188,7 +200,11 @@ class CompraLoteProductoEditModal extends Component
                 );
             }
 
-            $product->compra->recalculate();
+            // costo_total sale de recalcularCosto() (unidad + regalos +
+            // reparaciones), y la linea de compra se sincroniza con el costo:
+            // los dos solo los escribe CompraService.
+            $product->refresh()->recalcularCosto();
+            app(CompraService::class)->actualizarCostoProducto($product);
             DB::commit();
             $this->updateAndClose();
         } catch (ValidationException $e) {
@@ -270,18 +286,4 @@ class CompraLoteProductoEditModal extends Component
         $this->openModal = false;
     }
 
-    public function updatedProductoCostoUnidad()
-    {
-        $this->calculateCostoTotal();
-    }
-
-    public function updatedProductoCostoEnvio()
-    {
-        $this->calculateCostoTotal();
-    }
-
-    private function calculateCostoTotal()
-    {
-        $this->producto['costo_total'] = $this->producto['costo_unidad'] + $this->producto['costo_envio'] + $this->producto['costo_reparacion'];
-    }
 }

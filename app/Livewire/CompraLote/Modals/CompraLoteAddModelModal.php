@@ -4,23 +4,31 @@ namespace App\Livewire\CompraLote\Modals;
 
 use App\Enums\ProductoColor;
 use App\Enums\ProductoEstado;
-use App\Enums\ProductoVersion;
-use App\Models\Producto;
+use App\Enums\ProductoGrado;
+use App\Enums\ProductoTipoVenta;
 use App\Models\Bitacora;
+use App\Models\Compra;
 use App\Models\ProductoModelo;
 use App\Models\ProductoModeloAlmacenamiento;
 use App\Models\ProductoReparacion;
 use App\Models\Sucursal;
 use App\Models\Tecnicos;
-use Livewire\Component;
-use Livewire\Attributes\On;
+use App\Services\CompraService;
+use App\Traits\NormalizaCodigosTrait;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
+use Livewire\Attributes\On;
+use Livewire\Component;
 
+/**
+ * Alta de un equipo dentro de una compra (uno por uno: lleva IMEI, fotos y
+ * camara). Lo escribe CompraService::agregarProducto(), que crea el producto y
+ * su linea de compra. Todo en Bs; el viejo "costo de envio" ya no existe (lo
+ * reemplazan los accesorios de regalo, que se cargan desde la ficha).
+ */
 class CompraLoteAddModelModal extends Component
 {
-
     public $openModal = false;
     public $selectedModel;
     public $compra;
@@ -30,24 +38,24 @@ class CompraLoteAddModelModal extends Component
     public $color;
     public $version;
     public $imei;
+    public $sku;
+    public $upc;
     public $bateria_porcentaje = 0;
     public $disponible_catalogo = false;
     public $sin_reparacion = false;
-    public $sucursal_id = 1;
+    public $sucursal_id;
 
     public $costo_unidad = 0;
-    public $costo_envio = 40;
-    public $costo_total = 0;
 
     public $precio_cliente = 0;
     public $precio_vendedor = 0;
     public $descripcion;
     public $status = 'Inventario';
+    public $tipo_venta = 'Venta';
     public $tecnico_selected;
     public $tecnicos = [];
     public $sucursales = [];
     public $colores = [];
-    public $estadosProducto = [];
 
     public $photos = [];
 
@@ -76,7 +84,7 @@ class CompraLoteAddModelModal extends Component
 
     public $detallesSeleccionados = [];
     public $detallesText;
-    public $estado_grado = 10;
+    public $estado_grado = '1';
 
     protected $listeners = ['photoCaptured'];
     public $currentPhotoIndex = 0;
@@ -88,16 +96,20 @@ class CompraLoteAddModelModal extends Component
             'color' => 'required',
             'version' => 'nullable',
             'imei' => 'required|string|min:1|max:20|unique:productos,imei',
+            'sku' => 'nullable|string|max:50|unique:productos,sku',
+            'upc' => 'nullable|string|max:50',
             'bateria_porcentaje' => 'required|numeric|min:1|max:100',
             'costo_unidad' => 'required|numeric|min:0|decimal:0,2',
-            'costo_envio' => 'required|numeric|min:0|decimal:0,2',
-            'costo_total' => 'required|numeric|min:0|decimal:0,2',
             'precio_cliente' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
             'precio_vendedor' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
             'descripcion' => 'nullable|string',
             'disponible_catalogo' => 'required',
             'sin_reparacion' => 'required',
-            'estado_grado' => 'required',
+            'estado_grado' => ['required', Rule::in(ProductoGrado::values())],
+            'tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
+            // Al dar de alta no se puede elegir Vendido ni Credito: los escribe una venta.
+            'status' => ['required', Rule::in(array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()))],
+            'tecnico_selected' => 'required_if:status,' . ProductoEstado::Reparacion->value,
             'sucursal_id' => 'required|exists:sucursales,id,activa,1',
         ];
     }
@@ -107,15 +119,16 @@ class CompraLoteAddModelModal extends Component
         return [
             'required' => 'El campo :attribute es obligatorio.',
             'numeric' => 'El campo :attribute debe ser numérico.',
-            'digits_between' => 'El IMEI debe tener entre 15 y 17 dígitos.',
-            'unique' => 'Este IMEI ya existe en el sistema.',
+            'imei.unique' => 'Este IMEI ya existe en el sistema.',
+            'sku.unique' => 'Ese SKU ya lo tiene otro equipo.',
             'min' => 'El valor mínimo para :attribute es :min.',
             'max' => 'El valor máximo para :attribute es :max.',
             'decimal' => 'El campo :attribute debe tener máximo 2 decimales.',
-            'gte' => 'El precio al cliente debe ser mayor o igual al costo.',
+            'gte' => 'El precio debe ser mayor o igual al costo.',
             'almacenamiento.required' => 'Debe seleccionar un almacenamiento.',
             'color.required' => 'Debe seleccionar un color.',
-            'estado_grado.required' => 'Debe seleccionar una condición.',
+            'estado_grado.required' => 'Debe seleccionar el grado.',
+            'tecnico_selected.required_if' => 'Elija el técnico de la reparación.',
             'sucursal_id.required' => 'Debe seleccionar una sucursal',
             'sucursal_id.exists' => 'La sucursal elegida no existe o está desactivada.',
         ];
@@ -124,16 +137,14 @@ class CompraLoteAddModelModal extends Component
     protected function validationAttributes()
     {
         return [
-            'almacenamiento' => 'almacenamiento',
-            'color' => 'color',
             'imei' => 'IMEI',
             'bateria_porcentaje' => 'porcentaje de batería',
-            'costo_unidad' => 'costo unitario',
-            'costo_envio' => 'costo de envío',
-            'costo_total' => 'costo total',
+            'costo_unidad' => 'costo',
             'precio_cliente' => 'precio al cliente',
             'precio_vendedor' => 'precio al vendedor',
-            'estado_grado' => 'condición del producto',
+            'estado_grado' => 'grado',
+            'tipo_venta' => 'tipo de venta',
+            'status' => 'estado',
         ];
     }
 
@@ -141,14 +152,16 @@ class CompraLoteAddModelModal extends Component
     {
         $this->compra = $compra_lote;
         $this->colores = ProductoColor::cases();
-        $this->estadosProducto = ProductoEstado::cases();
         $this->tecnicos = Tecnicos::all();
         $this->sucursales = Sucursal::activas()->orderBy('nombre')->get();
     }
 
     public function render()
     {
-        return view('livewire.compra-lote.modals.compra-lote-add-model-modal');
+        return view('livewire.compra-lote.modals.compra-lote-add-model-modal', [
+            'estadosAlta' => collect(ProductoEstado::cases())
+                ->reject(fn($e) => in_array($e->value, ProductoEstado::soloPorDocumento(), true)),
+        ]);
     }
 
     public function photoCapturedCreate($photoData)
@@ -168,12 +181,11 @@ class CompraLoteAddModelModal extends Component
 
         if (empty($this->photos)) {
             $this->currentPhotoIndex = 0;
+
             return;
         }
 
-        $this->currentPhotoIndex = max(0, $this->currentPhotoIndex - 1);
-
-        $this->currentPhotoIndex = min($this->currentPhotoIndex, count($this->photos) - 1);
+        $this->currentPhotoIndex = min(max(0, $this->currentPhotoIndex - 1), count($this->photos) - 1);
     }
 
     #[On('openModalSelector')]
@@ -183,19 +195,10 @@ class CompraLoteAddModelModal extends Component
         $this->resetForm();
         $this->openModal = true;
 
-        $defaultStorage = collect($this->selectedModel->almacenamientos)
-            ->firstWhere('almacenamiento', '128GB');
-
-        $productoModeloAlmacenamiento = ProductoModeloAlmacenamiento::where('producto_modelo_id', $this->selectedModel->id)
-            ->where('almacenamiento', $defaultStorage->almacenamiento)
-            ->first();
-
-        if ($defaultStorage) {
+        // El precio de referencia del modelo, si ya lo cargaron: 128GB por defecto.
+        if ($this->selectedModel->almacenamientos->firstWhere('almacenamiento', '128GB')) {
             $this->almacenamiento = '128GB';
-            $this->costo_unidad = $productoModeloAlmacenamiento->costo;
-            $this->precio_vendedor = $productoModeloAlmacenamiento->precio;
-            $this->precio_cliente = $productoModeloAlmacenamiento->precio_cliente;
-            $this->costo_total = $this->costo_unidad + $this->costo_envio;
+            $this->aplicarPreciosDeReferencia();
         }
 
         $this->generateDescription();
@@ -203,47 +206,60 @@ class CompraLoteAddModelModal extends Component
 
     public function updatedAlmacenamiento($value)
     {
-        $selectedStorage = collect($this->selectedModel->almacenamientos)
-            ->firstWhere('almacenamiento', $value);
-
-        $productoModeloAlmacenamiento = ProductoModeloAlmacenamiento::where('producto_modelo_id', $this->selectedModel->id)
-            ->where('almacenamiento', $selectedStorage->almacenamiento)
-            ->first();
-
-        if ($selectedStorage) {
-            $this->costo_unidad = $productoModeloAlmacenamiento->costo;
-            $this->precio_vendedor = $productoModeloAlmacenamiento->precio;
-            $this->precio_cliente = $productoModeloAlmacenamiento->precio_cliente;
-            $this->costo_total = $this->costo_unidad + $this->costo_envio;
-        }
-
+        $this->aplicarPreciosDeReferencia();
         $this->generateDescription();
     }
+
+    /** Copia los precios de referencia del modelo/almacenamiento, si los hay (no pisa con ceros). */
+    private function aplicarPreciosDeReferencia(): void
+    {
+        $ref = ProductoModeloAlmacenamiento::where('producto_modelo_id', $this->selectedModel->id)
+            ->where('almacenamiento', $this->almacenamiento)
+            ->first();
+
+        if (!$ref) {
+            return;
+        }
+
+        if ((float) $ref->costo > 0) {
+            $this->costo_unidad = $ref->costo;
+        }
+        if ((float) $ref->precio > 0) {
+            $this->precio_vendedor = $ref->precio;
+        }
+        if ((float) $ref->precio_cliente > 0) {
+            $this->precio_cliente = $ref->precio_cliente;
+        }
+    }
+
     public function resetForm()
     {
         $this->resetErrorBag();
 
-        $latestProduct = Producto::where('compra_id', $this->compra->id)->orderby('id', 'desc')->first();
-        $this->costo_envio = $latestProduct ? $latestProduct->costo_envio : 40;
+        // Los valores del ultimo equipo de esta compra: en un lote, los equipos
+        // suelen repetirse y asi solo se cambia lo que difiere.
+        $ultimo = Compra::find($this->compra->id)?->productos()->orderByDesc('productos.id')->first();
 
-        $this->costo_unidad = $latestProduct ? $latestProduct->costo_unidad : 0;
-        $this->precio_cliente = $latestProduct ? $latestProduct->precio_cliente : 0;
-        $this->precio_vendedor = $latestProduct ? $latestProduct->precio_vendedor : 0;
-
-
+        $this->costo_unidad = $ultimo?->costo_unidad ?? 0;
+        $this->precio_cliente = $ultimo?->precio_cliente ?? 0;
+        $this->precio_vendedor = $ultimo?->precio_vendedor ?? 0;
         $this->detallesSeleccionados = [];
         $this->detallesText = '';
-        $this->estado_grado = $latestProduct ? $latestProduct->estado_grado : 'A';
-        $this->color = $latestProduct ? $latestProduct->color : ProductoColor::Negro->value;
-        // $this->color = ProductoColor::Negro->value;
-        $this->version = $latestProduct ? $latestProduct->version : '';
+        $this->estado_grado = $ultimo?->estado_grado ?? ProductoGrado::Uno->value;
+        $this->tipo_venta = $ultimo?->tipo_venta ?? ProductoTipoVenta::Venta->value;
+        $this->color = $ultimo?->color ?? ProductoColor::Negro->value;
+        $this->version = $ultimo?->version ?? '';
         $this->imei = '';
-        $this->bateria_porcentaje = $latestProduct ? $latestProduct->bateria_porcentaje : 0;
+        $this->sku = '';
+        $this->upc = '';
+        $this->bateria_porcentaje = $ultimo?->bateria_porcentaje ?? 0;
         $this->descripcion = '';
-        $this->status = $latestProduct ? $latestProduct->estado : ProductoEstado::Inventario->value;
+        $this->status = $ultimo && !in_array($ultimo->estado, ProductoEstado::soloPorDocumento(), true)
+            ? $ultimo->estado
+            : ProductoEstado::Inventario->value;
         $this->tecnico_selected = null;
         $this->photos = [];
-        $this->sucursal_id = $latestProduct ? $latestProduct->sucursal_id : 1;
+        $this->sucursal_id = $ultimo?->sucursal_id ?? $this->compra->sucursal_id;
     }
 
     public function closeModal()
@@ -253,12 +269,7 @@ class CompraLoteAddModelModal extends Component
 
     public function updated($propertyName)
     {
-        if (in_array($propertyName, [
-            'almacenamiento',
-            'color',
-            'imei',
-            'bateria_porcentaje',
-        ])) {
+        if (in_array($propertyName, ['almacenamiento', 'color', 'imei', 'bateria_porcentaje'])) {
             $this->generateDescription();
         }
     }
@@ -278,55 +289,44 @@ class CompraLoteAddModelModal extends Component
 
     protected function saveProduct()
     {
+        // La pistola puede dejar espacios o un salto de linea al final.
+        $this->imei = trim((string) $this->imei);
+        $this->sku = NormalizaCodigosTrait::normalizarCodigo($this->sku);
+        $this->upc = NormalizaCodigosTrait::normalizarCodigo($this->upc);
         $this->validate();
 
-        // Un alta de telefono no necesita clave de idempotencia sintetica: su
-        // clave natural es el IMEI, y ahora lo respalda el indice unico
-        // productos_imei_unico. Un reintento -- doble clic, o la red cortada
-        // justo al guardar-- choca contra el indice en lugar de dejar dos filas
-        // compitiendo por ser el mismo aparato. Antes solo lo frenaba la regla
-        // `unique:` de validate(), que valida con un SELECT previo: dos
-        // pestanas a la vez la pasaban las dos.
+        // La clave natural del alta es el IMEI (productos_imei_unico): un
+        // reintento choca contra el indice en lugar de crear el equipo dos veces.
         try {
             $producto = DB::transaction(function () {
-                // make() + anotar() + save() y no create(): para anotarle el
-                // alta hace falta la instancia ANTES de guardarla, y asi el
-                // observer escribe una sola fila con el estado con el que nace,
-                // la frase y el retrato completo del telefono.
-                $producto = Producto::make([
+                $compra = Compra::lockForUpdate()->findOrFail($this->compra->id);
+
+                $producto = app(CompraService::class)->agregarProducto($compra, [
                     'producto_modelo_id' => $this->selectedModel->id,
                     'almacenamiento' => $this->almacenamiento,
                     'color' => $this->color,
-                    'version' => $this->version,
+                    'version' => $this->version ?: null,
                     'imei' => $this->imei,
+                    'sku' => $this->sku,
+                    'upc' => $this->upc,
                     'bateria_porcentaje' => $this->bateria_porcentaje,
                     'costo_unidad' => $this->costo_unidad,
-                    'costo_envio' => $this->costo_envio,
-                    'costo_total' => $this->costo_total,
                     'precio_cliente' => $this->precio_cliente,
                     'precio_cliente_ant' => 0,
                     'precio_vendedor' => $this->precio_vendedor,
                     'precio_vendedor_ant' => 0,
                     'estado' => $this->status,
+                    'tipo_venta' => $this->tipo_venta,
                     'descripcion' => $this->descripcion,
                     'detalles' => $this->detallesText,
                     'estado_grado' => $this->estado_grado,
-                    'compra_id' => $this->compra->id,
                     'disponible_catalogo' => $this->disponible_catalogo,
                     'sin_reparacion' => $this->sin_reparacion,
                     'sucursal_id' => $this->sucursal_id,
-                ]);
-
-                // Toda alta deja su fila, con el estado con el que nace. Antes
-                // solo la escribia la rama de Reparacion, asi que un telefono
-                // creado en Fuera, Transito o Roto nacia sin traza y el auditor
-                // lo veia como "ultimo historial distinto del estado real".
-                $producto->anotar($producto->estado, "Producto registrado en el lote #{$this->compra->id}");
-                $producto->save();
+                ], $this->photos);
 
                 if ($this->status == ProductoEstado::Reparacion->value) {
-
-                    $tecnico = Tecnicos::find($this->tecnico_selected);
+                    $tecnico = Tecnicos::findOrFail($this->tecnico_selected);
 
                     $productoReparacion = ProductoReparacion::create([
                         'tecnico_id' => $tecnico->id,
@@ -336,7 +336,7 @@ class CompraLoteAddModelModal extends Component
                     ]);
 
                     // Hecho suelto: la reparacion no es un cambio del producto,
-                    // que ya nacio en Reparacion en la fila de arriba.
+                    // que ya nacio en Reparacion en su fila de alta.
                     Bitacora::registrar(
                         $producto,
                         $this->status,
@@ -345,28 +345,16 @@ class CompraLoteAddModelModal extends Component
                     );
                 }
 
-                foreach ($this->photos as $photo) {
-                    $producto->imagenes()->create([
-                        'base64' => $photo
-                    ]);
-                }
-
-                // Los totales del lote, DENTRO de la transaccion: fuera, un fallo
-                // al recalcular dejaba el producto commiteado y la cabecera con los
-                // totales viejos.
-                $this->compra->recalculate();
-
-                // El return que faltaba. Sin el, la closure devolvia null y
-                // $producto era SIEMPRE null: hoy nadie usa el retorno, asi que era
-                // una bomba de relojeria en lugar de un fallo visible.
                 return $producto;
             });
         } catch (QueryException $e) {
-            // 1062 sobre el IMEI: o se reintento este guardado, o el IMEI ya es
-            // de otro telefono. Las dos se arreglan igual -- comprobar el
-            // aparato-- y el mensaje lo dice en lugar de soltar el error crudo.
             if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'imei')) {
-                $this->addError('imei', "El IMEI {$this->imei} ya esta registrado. Si acabas de guardarlo, revisa la lista antes de repetir.");
+                $this->addError('imei', "El IMEI {$this->imei} ya está registrado. Si acabas de guardarlo, revisa la lista antes de repetir.");
+
+                return null;
+            }
+            if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'sku')) {
+                $this->addError('sku', 'Ese SKU ya lo tiene otro equipo.');
 
                 return null;
             }
@@ -381,14 +369,14 @@ class CompraLoteAddModelModal extends Component
 
     public function saveAndClose()
     {
-        // Si el alta no entro (IMEI repetido), el modal se queda abierto con el
-        // error a la vista en lugar de cerrarse como si hubiera funcionado.
+        // Si el alta no entro (IMEI repetido), el modal se queda abierto con el error.
         if (!$this->saveProduct()) {
             return;
         }
 
         $this->closeModal();
         $this->dispatch('refreshProductoTable');
+        $this->dispatch('refreshCompraDetalle');
     }
 
     public function saveAndContinue()
@@ -398,22 +386,9 @@ class CompraLoteAddModelModal extends Component
         }
 
         $this->dispatch('refreshProductoTable');
+        $this->dispatch('refreshCompraDetalle');
         toastr()->success('Se ha guardado el producto exitosamente');
         $this->resetForm();
-    }
-
-    public function updatedCostoUnidad()
-    {
-        $this->calculateCostoTotal();
-    }
-
-    public function updatedCostoEnvio()
-    {
-        $this->calculateCostoTotal();
-    }
-
-    private function calculateCostoTotal()
-    {
-        $this->costo_total = $this->costo_unidad + $this->costo_envio;
+        $this->dispatch('compra-equipo-guardado');
     }
 }

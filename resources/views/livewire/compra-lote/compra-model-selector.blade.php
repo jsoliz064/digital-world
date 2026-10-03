@@ -48,12 +48,12 @@
                                         </span>
                                     @endif
 
-                                    @if ($summary['transito'] > 0)
+                                    @if ($summary['reserva'] > 0)
                                         <span
                                             class="inline-flex items-center text-[0.6rem] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-900/60 text-gray-800 dark:text-gray-200 font-medium"
-                                            title="transito: {{ $summary['transito'] }}">
+                                            title="Reserva: {{ $summary['reserva'] }}">
                                             <i class="fa-solid fa-truck text-[0.7rem] mr-1 w-3 text-center"></i>
-                                            <span class="ml-0.5">{{ $summary['transito'] }}</span>
+                                            <span class="ml-0.5">{{ $summary['reserva'] }}</span>
                                         </span>
                                     @endif
 
