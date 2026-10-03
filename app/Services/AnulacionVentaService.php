@@ -3,90 +3,110 @@
 namespace App\Services;
 
 use App\Enums\ProductoEstado;
-use App\Models\VentaProducto;
+use App\Models\Venta;
+use App\Models\VentaDetalle;
 
 /**
- * Anular la linea de venta de un telefono: el unico camino.
+ * Anular una linea de venta, o la venta entera: el unico camino.
  *
- * POR QUE EXISTE
- * Habia dos pantallas que hacen esto -- VentaDetalleDestroyModal, desde el
- * detalle de la venta, y ProductoEstadoModal::cancelarVenta(), desde la ficha
- * del producto-- y eran gemelas divergidas. La del producto hacia las tres
- * cosas bien; la de la venta se dejaba las tres:
+ * Una linea puede ser:
+ *   - un equipo: se descobran ANTES sus repuestos de taller (con la FK de cobro
+ *     en RESTRICT es obligatorio), se borra la linea y el equipo vuelve a
+ *     Inventario con su precondicion (EstadoProductoService);
+ *   - un cobro de taller: se borra la linea; NO devuelve stock (la pieza sigue
+ *     montada en el equipo);
+ *   - un repuesto o accesorio: el stock vuelve a la sucursal DE LA LINEA (no a
+ *     la de la venta ni a la del equipo), y se borra la linea.
  *
- *   1. No llamaba a cancelarCobros(), asi que los repuestos cobrados con el
- *      equipo seguian cobrados y sus reparaciones marcadas como no elegibles.
- *      La FK nullOnDelete dejaba el cobro vivo con venta_id nulo.
- *   2. No borraba la cabecera cuando el detalle era el ultimo, y dejaba una
- *      venta de total 0 y cero productos -- que es EXACTAMENTE lo que un
- *      usuario describe como "la venta no se guardo".
- *   3. Devolvia el producto a Inventario con un update directo, sin precondicion
- *      ni bloqueo.
- *
- * Un gemelo que ya divergio una vez vuelve a divergir, asi que aqui hay uno.
+ * Si la venta queda sin lineas, la cabecera se borra: una venta sin lineas es
+ * basura que se lee como "no se guardo". Las lineas tienen la FK de venta en
+ * RESTRICT a proposito: un camino que olvidara anularlas antes falla con un
+ * error visible, en vez de llevarselas por cascada sin devolver el stock.
  *
  * TRANSACCIONES
- * No abre la suya: asume la del llamador. Anular toca tres tablas y media
- * anulacion es peor que ninguna.
+ * No abre la suya: asume la del llamador. Media anulacion es peor que ninguna.
  */
 class AnulacionVentaService
 {
     public function __construct(
         private EstadoProductoService $estados,
         private RepuestosDeReparacionService $repuestos,
+        private StockService $stock,
     ) {}
 
     /**
-     * Quita el telefono de su venta y lo devuelve al inventario.
+     * Quita una linea de su venta.
      *
-     * Si era el unico producto de la venta, la venta entera desaparece: una
-     * cabecera sin lineas no es un documento, es basura que ensucia los
-     * listados y los reportes.
+     * @return bool true si la venta entera quedo vacia y se borro
      */
-    public function anularDetalle(VentaProducto $detalle): void
+    public function anularLinea(VentaDetalle $linea): bool
     {
-        $venta = $detalle->venta;
-        $producto = $detalle->producto;
+        $venta = $linea->venta;
 
-        // El id se guarda ANTES: si la venta se borra, $venta->id deja de
-        // servir para el mensaje del historial.
-        $ventaId = $venta->id;
+        $this->deshacerLinea($venta, $linea);
+        $this->stock->recalcularTotales();
 
-        // Se descobra ANTES de tocar la venta: si la venta desaparece primero,
-        // la FK nullOnDelete deja el cobro de repuestos huerfano, vivo y cobrado
-        // a un cliente cuya venta se acaba de anular.
-        if ($venta->detalles()->count() < 2) {
-            $this->repuestos->cancelarCobros($venta);
-
-            // La FK de ventas_productos.venta_id es cascade: borrar la cabecera
-            // se lleva este detalle. No hace falta borrarlo a mano.
+        if ($venta->detalles()->doesntExist()) {
             $venta->delete();
-        } else {
-            // Con varios productos solo se anula este: sus repuestos se
-            // descobran, los de los demas siguen cobrados.
-            $this->repuestos->cancelarCobros($venta, $producto->id);
 
-            $detalle->delete();
-            $venta->refresh();
-            $venta->recalcularTotal();
+            return true;
         }
 
-        // La precondicion importa aqui tambien: si el producto ya no esta
-        // Vendido, alguien lo movio y volver a bajarlo a Inventario pisaria ese
-        // cambio.
-        $this->estados->cambiar(
-            $producto->id,
-            ProductoEstado::Vendido,
-            ProductoEstado::Inventario,
-            "Producto devuelto al inventario desde la venta #{$ventaId} (cancelacion de detalle).",
-        );
+        $venta->refresh();
+        $venta->recalcularTotales();
 
-        // No se restaura disponible_catalogo, y es a proposito: nadie guardo su
-        // valor anterior. Las tres puertas de venta lo ponian en false al
-        // vender, lo cual era redundante -- el catalogo excluye Vendido con un
-        // whereNotIn y su condicion es `disponible_catalogo = 1 OR estado IN
-        // (Inventario, Oferta)` -- y destructivo, porque borraba una casilla que
-        // el operador marca a mano. Esos writes se quitaron en lugar de
-        // inventar aqui un valor que no se sabe.
+        return false;
+    }
+
+    /** Anula todas las lineas y borra la venta. */
+    public function anularVenta(Venta $venta): void
+    {
+        // Los cobros primero: con la FK en RESTRICT, ninguna linea de equipo se
+        // puede tocar mientras su cobro exista.
+        $this->repuestos->cancelarCobros($venta);
+
+        $lineas = $venta->detalles()->orderByRaw('producto_id IS NULL')->orderBy('id')->get();
+
+        foreach ($lineas as $linea) {
+            $this->deshacerLinea($venta, $linea);
+        }
+
+        $this->stock->recalcularTotales();
+        $venta->delete();
+    }
+
+    private function deshacerLinea(Venta $venta, VentaDetalle $linea): void
+    {
+        // El id se guarda antes: si la venta se borra, deja de servir.
+        $ventaId = $venta->id;
+
+        if ($linea->producto_id) {
+            $this->repuestos->cancelarCobros($venta, $linea->producto_id);
+            $linea->delete();
+
+            // La precondicion importa: si el producto ya no esta vendido,
+            // alguien lo movio y bajarlo a Inventario pisaria ese cambio.
+            $this->estados->cambiar(
+                $linea->producto_id,
+                array_map(fn($v) => ProductoEstado::from($v), ProductoEstado::vendidos()),
+                ProductoEstado::Inventario,
+                "Producto devuelto al inventario: se anulo su linea de la venta #{$ventaId}.",
+                ['venta_id' => $ventaId],
+            );
+
+            return;
+        }
+
+        if ($linea->stockYaDescontado()) {
+            // Un cobro de taller: la pieza sigue montada, no hay stock que
+            // devolver. cancelarCobros deja la nota en el historial del equipo.
+            $this->repuestos->cancelarCobros($venta, null, $linea->id);
+
+            return;
+        }
+
+        $tipo = $linea->tipoLinea()->articulo();
+        $this->stock->ingresar($tipo, $linea->{$tipo->columna()}, $linea->sucursal_id, (int) $linea->cantidad);
+        $linea->delete();
     }
 }

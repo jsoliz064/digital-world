@@ -57,11 +57,11 @@ use Livewire\Attributes\Locked;
  * INSERT entra.
  *
  * ⚠️ $fillable GANA A $guarded
- * Venta y VentaRepuesto declaran los dos. Sin 'clave_idempotencia' en su
- * $fillable, create() la descarta EN SILENCIO, la clave se guarda como NULL, el
- * indice unico admite todos los NULL que quieras y toda esta maquinaria queda
- * inerte sin un solo error que lo delate. Es la trampa que ya se cobro a
- * mano_obra. Compra y CompraRepuesto son $guarded = ['id'] y no necesitan nada.
+ * Venta declara los dos. Sin 'clave_idempotencia' en su $fillable, create() la
+ * descarta EN SILENCIO, la clave se guarda como NULL, el indice unico admite
+ * todos los NULL que quieras y toda esta maquinaria queda inerte sin un solo
+ * error que lo delate. Es la trampa que ya se cobro a mano_obra. Compra es
+ * $guarded = ['id'] y no necesita nada.
  */
 trait GuardadoIdempotenteTrait
 {
@@ -109,8 +109,8 @@ trait GuardadoIdempotenteTrait
      * Si la excepcion es el choque de NUESTRO indice.
      *
      * Se comprueba el nombre y no solo el 1062: en la misma transaccion hay
-     * otros indices unicos -- el de ventas_repuestos_detalles que impide cobrar
-     * dos veces la misma pieza, el de repuestos_sucursales-- y tomar uno de
+     * otros indices unicos -- vd_reparacion_repuesto_unico, que impide cobrar
+     * dos veces la misma pieza, o el de un telefono en dos ventas -- y tomar uno de
      * esos por nuestro daria un "ya se guardo" falso sobre una venta que de
      * verdad fallo.
      */

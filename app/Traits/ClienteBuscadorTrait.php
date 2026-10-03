@@ -8,22 +8,19 @@ use Livewire\Attributes\On;
 /**
  * Elegir el cliente de una venta: buscar, mirar el catalogo, o crearlo al vuelo.
  *
- * Lo comparten las CINCO puertas de venta -- VentaCreate, VentaEdit,
- * VentaRepuestoCreate, VentaRepuestoEdit y la rama Vendido de
- * ProductoEstadoModal -- porque antes cada una pedia el cliente con un input de
- * texto suelto y cinco reglas de validacion distintas entre si. Un trait y no
- * cinco copias: el fallo recurrente de este repo es la copia que divergio.
+ * Hoy hay una sola puerta de venta (VentaForm, para crear y editar), pero el
+ * trait se queda: antes eran cinco pantallas, cada una pidiendo el cliente con
+ * un input de texto suelto y su propia regla de validacion, y el fallo
+ * recurrente de este repo es la copia que diverge.
  *
- * TRES CAMINOS DE ENTRADA, uno al lado del otro, como ya hace la pantalla de
- * compra de repuestos con el catalogo:
+ * TRES CAMINOS DE ENTRADA, uno al lado del otro:
  *   1. teclear  -> updatedSearchCliente() y el desplegable
  *   2. mirar    -> openClienteSelector() y ClienteSelectorModal
  *   3. crear    -> openClienteCreateModal(), que devuelve el id y autoselecciona
  *
  * EL COMPONENTE QUE LO USE debe implementar fijarCliente() y clienteIdElegido():
- * cada pantalla guarda la cabecera en una propiedad con otro nombre ($venta,
- * $ventaRepuesto, $vendido), asi que el trait no puede saber donde escribir. Es
- * el mismo reparto que RepuestoBuscadorTrait hace con sucursalDelDocumento().
+ * el trait no sabe en que propiedad guarda la cabecera. Es el mismo reparto
+ * que CarritoBuscadorTrait hace con sucursalDelDocumento().
  */
 trait ClienteBuscadorTrait
 {
@@ -47,8 +44,8 @@ trait ClienteBuscadorTrait
      *
      * La guarda de termino vacio NO es opcional: sin ella, borrar la caja dispara
      * un `like '%%'` y lista los diez primeros clientes como si fueran
-     * resultados de la busqueda. Es el bug que RepuestoBuscadorTrait documenta
-     * haber heredado de sus cuatro copias.
+     * resultados de la busqueda, un bug que ya se habia copiado a cuatro
+     * pantallas.
      */
     public function updatedSearchCliente($value)
     {
@@ -122,8 +119,7 @@ trait ClienteBuscadorTrait
     /**
      * El cliente recien creado queda elegido sin pasar por el buscador.
      *
-     * Escucha `clienteCreado` y NO `refreshClienteTable`, aunque el repo use ese
-     * truco en CompraRepuestoCreate: refreshClienteTable lo despacharian tambien
+     * Escucha `clienteCreado` y NO `refreshClienteTable`: este lo despacharian tambien
      * los modales de editar y eliminar SIN argumento, y este metodo reventaria
      * por falta de parametro en cuanto coincidieran en pantalla.
      */

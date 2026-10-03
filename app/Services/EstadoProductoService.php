@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * El UNICO camino de escritura de productos.estado.
  *
- * Hermano de StockRepuestoService, y por el mismo motivo: el estado se cambiaba
+ * Hermano de StockService, y por el mismo motivo: el estado se cambiaba
  * desde DIEZ sitios en ocho componentes, cada uno con su idiom, y dos de ellos
  * se olvidaban del historial. Unificar la escritura es lo que permite poner la
  * precondicion y el permiso una sola vez en lugar de diez.
@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
  * no crea una segunda venta, avisa.
  *
  * POR QUE UNA LECTURA BLOQUEADA Y NO UN `UPDATE ... WHERE estado = ?`
- * El idiom atomico de StockRepuestoService::retirar() -- poner la condicion en
+ * El idiom atomico de StockService::retirar() -- poner la condicion en
  * el WHERE y mirar las filas afectadas -- aqui se rompe en SILENCIO. Laravel no
  * activa PDO::MYSQL_ATTR_FOUND_ROWS, asi que MySQL devuelve filas CAMBIADAS, no
  * filas encontradas: un `SET estado='Fuera' WHERE estado='Fuera'` -- que es
@@ -29,8 +29,8 @@ use Illuminate\Validation\ValidationException;
  * descripcion-- devuelve 0 y fingiria un conflicto inexistente.
  *
  * En retirar() el idiom funciona porque `cantidad - n` SIEMPRE cambia el valor.
- * Aqui hace falta un SELECT ... FOR UPDATE, que es lo que ya hacia
- * VentaCarritoTrait::bloquearProductoDisponible() y de donde sale esta clase.
+ * Aqui hace falta un SELECT ... FOR UPDATE, el mismo bloqueo que VentaService
+ * toma sobre los equipos antes de venderlos.
  *
  * EL HISTORIAL SALE DE LA MISMA VARIABLE QUE EL ESTADO
  * CLAUDE.md promete que cada cambio escribe su fila y que es "la unica traza del
@@ -52,7 +52,7 @@ class EstadoProductoService
      *
      * @param  ProductoEstado|ProductoEstado[]  $esperado  el estado (o los estados)
      *         en que el llamador cree que esta el producto. Varios para los casos
-     *         con dos origenes legitimos, como Fuera/Transito -> Inventario.
+     *         con dos origenes legitimos, como Fuera/Roto -> Inventario.
      * @param  array  $enlaces  claves opcionales del historial: venta_id,
      *         producto_reparacion_id.
      * @param  bool  $exigirPermiso  solo donde el usuario ELIGE el estado de una
@@ -137,6 +137,15 @@ class EstadoProductoService
         if (!$producto) {
             throw ValidationException::withMessages([
                 'detalles' => 'El producto ya no existe. Recarga la pantalla.',
+            ]);
+        }
+
+        // Un equipo dado de baja esta archivado: no se vende, no se repara, no
+        // se mueve. Va aqui y no en cada pantalla porque todo cambio de estado
+        // pasa por este metodo, asi que ninguna puerta puede saltarselo.
+        if ($producto->estaDadoDeBaja()) {
+            throw ValidationException::withMessages([
+                'detalles' => "El producto {$producto->imei} esta dado de baja. Revierte la baja antes de operar con el.",
             ]);
         }
 

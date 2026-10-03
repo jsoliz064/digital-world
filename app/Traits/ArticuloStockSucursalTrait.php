@@ -2,28 +2,21 @@
 
 namespace App\Traits;
 
+use App\Enums\ArticuloTipo;
 use App\Models\Bitacora;
-use App\Models\Repuesto;
 use App\Models\Sucursal;
-use App\Services\StockRepuestoService;
+use App\Services\StockService;
 use Illuminate\Support\Facades\DB;
 
 /**
- * El stock por sucursal dentro del formulario de crear y editar un articulo.
- *
- * Vive en un trait porque RepuestoCreateModal y RepuestoEditModal son gemelos
- * literales -- el mismo motivo por el que ya existe RepuestoAccesorioTrait -- y
- * porque el total es una invariante: si las dos pantallas lo calcularan por su
- * cuenta, una de las dos se quedaria atras.
+ * El stock por sucursal dentro del formulario de crear y editar un repuesto o
+ * un accesorio. El componente declara articuloTipo().
  *
  * El formulario trabaja con `$stockSucursales`, un array [sucursal_id => cantidad]
- * con una entrada por sucursal elegida. Al guardar se traduce a movimientos del
- * servicio, nunca a una escritura directa de `repuestos.cantidad`.
- *
- * Aplica igual a repuestos y a accesorios: `cantidad` no esta en
- * camposSoloRepuesto(), y un accesorio tambien tiene existencias.
+ * con una entrada por sucursal elegida. Al guardar se traduce a movimientos de
+ * StockService, nunca a una escritura directa del total cacheado.
  */
-trait RepuestoStockSucursalTrait
+trait ArticuloStockSucursalTrait
 {
     /** [sucursal_id => cantidad]. Una fila por sucursal cargada. */
     public array $stockSucursales = [];
@@ -31,7 +24,9 @@ trait RepuestoStockSucursalTrait
     /** La sucursal que el usuario esta por agregar. */
     public $sucursalNueva = '';
 
-    /** Las sucursales que todavia no estan en el formulario. */
+    abstract protected function articuloTipo(): ArticuloTipo;
+
+    /** Las sucursales activas que todavia no estan en el formulario. */
     public function sucursalesDisponibles()
     {
         // Solo activas: agregar stock a una sucursal desactivada no tiene
@@ -64,8 +59,6 @@ trait RepuestoStockSucursalTrait
 
         $id = (int) $this->sucursalNueva;
 
-        // Sin duplicados: la unique de (repuesto_id, sucursal_id) lo impediria
-        // igual, pero mejor no llegar ahi.
         if (!array_key_exists($id, $this->stockSucursales)) {
             $this->stockSucursales[$id] = 0;
         }
@@ -79,38 +72,26 @@ trait RepuestoStockSucursalTrait
     }
 
     /** Carga el reparto actual de un articulo ya guardado. */
-    protected function cargarStockSucursales(int $repuestoId): void
+    protected function cargarStockSucursales(int $articuloId): void
     {
-        $this->stockSucursales = DB::table('repuestos_sucursales')
-            ->where('repuesto_id', $repuestoId)
-            ->pluck('cantidad', 'sucursal_id')
-            ->map(fn($c) => (int) $c)
-            ->all();
+        $this->stockSucursales = app(StockService::class)->porSucursal($this->articuloTipo(), $articuloId);
     }
 
     /**
-     * Lleva el stock de cada sucursal al valor del formulario, por diferencia.
-     *
-     * Se usa ajustarEntrada y no una escritura directa para que el camino sea el
-     * mismo que el de compras, ventas y reparaciones: un solo sitio escribe
-     * stock. Una sucursal que se quito del formulario se lleva a cero, lo que
-     * puede fallar si el valor guardado era negativo -- y eso es correcto, no
-     * hay nada que retirar.
+     * Lleva el stock de cada sucursal al valor del formulario, por diferencia,
+     * con ajustarEntrada(): el mismo camino que compras, ventas y reparaciones.
+     * Una sucursal que se quito del formulario se lleva a cero.
      *
      * Debe llamarse DENTRO de una transaccion del llamador.
      */
-    protected function guardarStockSucursales(int $repuestoId): void
+    protected function guardarStockSucursales(int $articuloId): void
     {
-        $stock = new StockRepuestoService();
+        $tipo = $this->articuloTipo();
+        $stock = app(StockService::class);
+        $actual = $stock->porSucursal($tipo, $articuloId);
 
-        $actual = DB::table('repuestos_sucursales')
-            ->where('repuesto_id', $repuestoId)
-            ->pluck('cantidad', 'sucursal_id')
-            ->map(fn($c) => (int) $c)
-            ->all();
-
-        // Las sucursales del formulario, mas las que estaban y se quitaron (que
-        // van a cero). Ordenadas para no bloquear en InnoDB.
+        // Las del formulario mas las que estaban y se quitaron (van a cero).
+        // Ordenadas para no bloquear en InnoDB.
         $ids = array_unique(array_merge(array_keys($actual), array_keys($this->stockSucursales)));
         sort($ids);
 
@@ -120,7 +101,7 @@ trait RepuestoStockSucursalTrait
             $antes = $actual[$sucursalId] ?? 0;
             $ahora = (int) ($this->stockSucursales[$sucursalId] ?? 0);
 
-            $stock->ajustarEntrada($repuestoId, (int) $sucursalId, $antes, $ahora);
+            $stock->ajustarEntrada($tipo, $articuloId, (int) $sucursalId, $antes, $ahora);
 
             if ($antes !== $ahora) {
                 $movidas[(int) $sucursalId] = [$antes, $ahora];
@@ -129,28 +110,22 @@ trait RepuestoStockSucursalTrait
 
         $stock->recalcularTotales();
 
-        $this->registrarAjusteDeStock($repuestoId, $movidas, esAlta: $actual === []);
+        $this->registrarAjusteDeStock($articuloId, $movidas, esAlta: $actual === []);
     }
 
     /**
-     * El ajuste a mano, en la bitacora del articulo.
-     *
-     * Tiene que escribirse aqui, a mano: StockRepuestoService mueve el stock con
-     * SQL crudo (DB::statement / DB::update) y ningun observer se entera. Era el
-     * hueco que confesaba el banner del historial de repuestos -- "el stock
-     * tambien cambia al editarlo a mano desde la ficha" -- y por el que el
-     * balance calculado no cuadraba sin que hubiera forma de saber por que.
-     *
-     * Una fila por guardado, con TODAS las sucursales que cambiaron como pares
-     * [antes, despues] por nombre: la misma forma que un diff del observer, asi
-     * que la pinta el mismo componente.
+     * El ajuste a mano, en la bitacora del articulo. Tiene que escribirse aqui:
+     * StockService mueve el stock con SQL crudo y ningun observer se entera.
+     * Una fila por guardado, con las sucursales que cambiaron como pares
+     * [antes, despues] por nombre (la forma de un diff del observer).
      */
-    protected function registrarAjusteDeStock(int $repuestoId, array $movidas, bool $esAlta): void
+    protected function registrarAjusteDeStock(int $articuloId, array $movidas, bool $esAlta): void
     {
         if ($movidas === []) {
             return;
         }
 
+        $tipo = $this->articuloTipo();
         $nombres = Sucursal::whereIn('id', array_keys($movidas))->pluck('nombre', 'id');
 
         $cambios = [];
@@ -161,13 +136,13 @@ trait RepuestoStockSucursalTrait
         $neto = array_sum(array_map(fn($par) => $par[1] - $par[0], $movidas));
 
         Bitacora::registrar(
-            Repuesto::findOrFail($repuestoId),
+            ($tipo->modelo())::findOrFail($articuloId),
             'stock',
             $esAlta
                 ? 'Stock inicial cargado desde la ficha'
                 : 'Stock ajustado a mano desde la ficha (neto ' . ($neto >= 0 ? '+' : '') . $neto . ')',
             // El enlace a la sucursal solo cuando es una: con varias, el detalle
-            // esta en `cambios` y elegir una de ellas mentiria.
+            // esta en `cambios`.
             count($movidas) === 1 ? ['sucursal_id' => array_key_first($movidas)] : [],
             $cambios,
         );

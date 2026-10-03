@@ -2,34 +2,29 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\ArticuloTipo;
 use App\Enums\ProductoEstado;
 use App\Models\Producto;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Detector de deriva del inventario. SOLO LECTURA.
  *
- * Existe por lo mismo que el banner de "el balance calculado no coincide" del
- * historial de repuestos: la deriva se mide, no se asume. Cuando se reporto que
- * un telefono quedaba "Vendido sin orden de venta", la unica forma de saber si
- * seguia pasando fue escribir estas seis consultas a mano; vivir en un comando
- * las vuelve repetibles.
- *
- * Sigue siendo util DESPUES de los indices unicos de productos.imei y
- * ventas_productos.producto_id: esos cierran la puerta de la aplicacion, pero
- * nada impide un UPDATE a mano en la base -- que es a lo que se parecen los
- * tres productos que aparecieron en Oferta con su ultimo historial en
- * Inventario.
+ * La deriva se mide, no se asume. Los indices unicos y los CHECK cierran la
+ * puerta de la aplicacion, pero nada impide un UPDATE a mano en la base, y los
+ * totales cacheados (stock, costo de regalos, totales de venta y compra) solo
+ * cuadran si todo pasa por sus servicios.
  *
  * No arregla nada a proposito. Cada hallazgo necesita una decision de negocio
- * (?esa venta se cobro?), y un --fix que adivine seria peor que el problema.
+ * (¿esa venta se cobro?), y un --fix que adivine seria peor que el problema.
  */
 class AuditarProductos extends Command
 {
     protected $signature = 'productos:auditar';
 
-    protected $description = 'Busca inconsistencias entre productos, ventas, historial y stock (solo lectura)';
+    protected $description = 'Busca inconsistencias entre productos, ventas, compras, historial y stock (solo lectura)';
 
     /** Hallazgos acumulados, para decidir el codigo de salida al final. */
     private int $problemas = 0;
@@ -42,10 +37,19 @@ class AuditarProductos extends Command
         $this->vendidosSinVenta();
         $this->enVentaSinEstarVendidos();
         $this->ventasSinDetalles();
-        $this->productosEnDosVentas();
+        $this->comprasSinDetalles();
+        $this->productosSinCompra();
         $this->imeiDuplicados();
         $this->historialDesalineado();
-        $this->stockDescuadrado();
+        $this->dadosDeBajaVendidos();
+        foreach (ArticuloTipo::cases() as $tipo) {
+            $this->stockDescuadrado($tipo);
+        }
+        $this->costoRegalosDescuadrado();
+        $this->costoTotalDescuadrado();
+        $this->costoCompraDescuadrado();
+        $this->totalVentaDescuadrado();
+        $this->totalCompraDescuadrado();
 
         $this->newLine();
 
@@ -61,50 +65,40 @@ class AuditarProductos extends Command
         return self::FAILURE;
     }
 
-    /**
-     * El sintoma que origino todo: el telefono marcado como vendido y la orden
-     * de venta en ninguna parte.
-     */
+    /** El telefono marcado como vendido (o a credito) y la linea de venta en ninguna parte. */
     private function vendidosSinVenta(): void
     {
         $filas = DB::table('productos as p')
-            ->where('p.estado', ProductoEstado::Vendido->value)
+            ->whereIn('p.estado', ProductoEstado::vendidos())
             ->whereNotExists(fn($q) => $q->select(DB::raw(1))
-                ->from('ventas_productos as vp')
-                ->whereColumn('vp.producto_id', 'p.id'))
-            ->select('p.id', 'p.imei', 'p.updated_at')
+                ->from('ventas_detalles as vd')
+                ->whereColumn('vd.producto_id', 'p.id'))
+            ->select('p.id', 'p.imei', 'p.estado', 'p.updated_at')
             ->orderByDesc('p.updated_at')
             ->get();
 
-        $this->reportar('Productos Vendido sin linea de venta', $filas, ['id', 'imei', 'updated_at']);
+        $this->reportar('Productos vendidos sin linea de venta', $filas, ['id', 'imei', 'estado', 'updated_at']);
     }
 
-    /**
-     * El reverso: la venta existe pero el telefono sigue disponible, asi que
-     * puede volver a venderse.
-     */
+    /** El reverso: la venta existe pero el telefono sigue disponible y puede volver a venderse. */
     private function enVentaSinEstarVendidos(): void
     {
-        $filas = DB::table('ventas_productos as vp')
-            ->join('productos as p', 'p.id', '=', 'vp.producto_id')
-            ->where('p.estado', '<>', ProductoEstado::Vendido->value)
-            ->select('p.id', 'p.imei', 'p.estado', 'vp.venta_id')
+        $filas = DB::table('ventas_detalles as vd')
+            ->join('productos as p', 'p.id', '=', 'vd.producto_id')
+            ->whereNotIn('p.estado', ProductoEstado::vendidos())
+            ->select('p.id', 'p.imei', 'p.estado', 'vd.venta_id')
             ->get();
 
-        $this->reportar('Productos en una venta sin estar Vendido', $filas, ['id', 'imei', 'estado', 'venta_id']);
+        $this->reportar('Productos en una venta sin estar vendidos', $filas, ['id', 'imei', 'estado', 'venta_id']);
     }
 
-    /**
-     * Una cabecera sin lineas es exactamente lo que un usuario describe como
-     * "la venta no se guardo". Las deja VentaDetalleDestroyModal al borrar el
-     * ultimo detalle.
-     */
+    /** Una cabecera sin lineas es lo que un usuario describe como "la venta no se guardo". */
     private function ventasSinDetalles(): void
     {
         $filas = DB::table('ventas as v')
             ->whereNotExists(fn($q) => $q->select(DB::raw(1))
-                ->from('ventas_productos as vp')
-                ->whereColumn('vp.venta_id', 'v.id'))
+                ->from('ventas_detalles as vd')
+                ->whereColumn('vd.venta_id', 'v.id'))
             ->select('v.id', 'v.cliente', 'v.total', 'v.created_at')
             ->orderByDesc('v.id')
             ->get();
@@ -113,19 +107,38 @@ class AuditarProductos extends Command
     }
 
     /**
-     * Lo que impide el indice unico de ventas_productos.producto_id. Con
-     * Producto::ventaProducto() siendo hasOne, la segunda venta es invisible
-     * desde la ficha del telefono.
+     * Una compra sin lineas ni equipos. No es necesariamente un error (se crea
+     * la cabecera y despues se cargan los equipos), pero una vieja vacia es
+     * basura.
      */
-    private function productosEnDosVentas(): void
+    private function comprasSinDetalles(): void
     {
-        $filas = DB::table('ventas_productos')
-            ->selectRaw('producto_id, COUNT(*) as veces, GROUP_CONCAT(venta_id) as ventas')
-            ->groupBy('producto_id')
-            ->havingRaw('COUNT(*) > 1')
+        $filas = DB::table('compras as c')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))
+                ->from('compras_detalles as cd')
+                ->whereColumn('cd.compra_id', 'c.id'))
+            ->where('c.created_at', '<', now()->subDay())
+            ->select('c.id', 'c.fecha', 'c.created_at')
             ->get();
 
-        $this->reportar('El mismo producto en dos o mas ventas', $filas, ['producto_id', 'veces', 'ventas']);
+        $this->reportar('Compras vacias de mas de un dia', $filas, ['id', 'fecha', 'created_at']);
+    }
+
+    /**
+     * Equipos sin linea de compra. Hoy todo equipo entra por una compra; cuando
+     * exista la permuta (etapa 5) los equipos recibidos no tendran linea y esta
+     * comprobacion tendra que excluirlos.
+     */
+    private function productosSinCompra(): void
+    {
+        $filas = DB::table('productos as p')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))
+                ->from('compras_detalles as cd')
+                ->whereColumn('cd.producto_id', 'p.id'))
+            ->select('p.id', 'p.imei', 'p.created_at')
+            ->get();
+
+        $this->reportar('Productos sin linea de compra', $filas, ['id', 'imei', 'created_at']);
     }
 
     /** Lo que impide el indice unico de productos.imei. */
@@ -141,26 +154,14 @@ class AuditarProductos extends Command
     }
 
     /**
-     * CLAUDE.md promete que el historial es "la unica traza del telefono". Esta
-     * consulta mide cuanto se cumple: compara el estado real con el de la
-     * ultima fila escrita.
-     *
-     * Antes de EstadoProductoService daba 6 de 93, porque TecnicoTerminarModal
-     * y ReparacionEditModal escribian 'Reparacion' en el historial mientras
-     * movian el producto a 'Inventario', y dos caminos de compra cambiaban el
-     * estado sin dejar fila. Esas filas viejas NO se reescriben -- son
-     * historia-- asi que este numero no baja a cero con el arreglo; lo que
-     * importa es que no suba.
-     *
-     * Lee la BITACORA, y no cualquier fila: solo las que llevan un estado como
-     * evento. Las demas -- 'editado' del observer, 'garantia', 'cobro' -- no
-     * dicen en que estado quedo el telefono y compararlas daria falsos
-     * positivos. Un cambio de estado que se saltara EstadoProductoService se
-     * sigue cazando: deja la ultima fila CON estado diciendo el anterior.
+     * Compara el estado real con el de la ultima fila de bitacora que lleva un
+     * ESTADO como evento. Las demas ('editado', 'garantia', 'cobro', 'baja'...)
+     * no dicen en que estado quedo el telefono. Un cambio de estado que se
+     * saltara EstadoProductoService deja la ultima fila con el estado anterior.
      */
     private function historialDesalineado(): void
     {
-        $estados = array_column(ProductoEstado::cases(), 'value');
+        $estados = ProductoEstado::values();
         $huecos = implode(',', array_fill(0, count($estados), '?'));
 
         $filas = DB::select(
@@ -185,32 +186,107 @@ class AuditarProductos extends Command
         );
     }
 
-    /**
-     * La invariante del modulo de repuestos: repuestos.cantidad es un total
-     * cacheado de repuestos_sucursales. recalcularTotales() es auto-sanante, asi
-     * que una fila aqui significa que algo escribio el total por fuera del
-     * servicio.
-     */
-    private function stockDescuadrado(): void
+    /** Un equipo dado de baja no puede estar vendido: BajaService lo impide. */
+    private function dadosDeBajaVendidos(): void
     {
+        $filas = DB::table('productos')
+            ->whereNotNull('dado_de_baja_at')
+            ->whereIn('estado', ProductoEstado::vendidos())
+            ->select('id', 'imei', 'estado', 'dado_de_baja_at')
+            ->get();
+
+        $this->reportar('Productos dados de baja en estado vendido', $filas, ['id', 'imei', 'estado', 'dado_de_baja_at']);
+    }
+
+    /**
+     * El total cacheado (repuestos.cantidad / accesorios.cantidad) contra
+     * stock_sucursales. recalcularTotales() es auto-sanante, asi que una fila
+     * aqui significa que algo escribio el total por fuera de StockService.
+     */
+    private function stockDescuadrado(ArticuloTipo $tipo): void
+    {
+        $tabla = $tipo->tabla();
+        $col = $tipo->columna();
+
         $filas = DB::select(
-            'SELECT r.id, r.nombre, r.cantidad AS total_cacheado,
-                    COALESCE(SUM(rs.cantidad), 0) AS suma_sucursales
-               FROM repuestos r
-          LEFT JOIN repuestos_sucursales rs ON rs.repuesto_id = r.id
-           GROUP BY r.id, r.nombre, r.cantidad
-             HAVING r.cantidad <> COALESCE(SUM(rs.cantidad), 0)'
+            "SELECT a.id, a.nombre, a.cantidad AS total_cacheado,
+                    COALESCE(SUM(ss.cantidad), 0) AS suma_sucursales
+               FROM {$tabla} a
+          LEFT JOIN stock_sucursales ss ON ss.{$col} = a.id
+           GROUP BY a.id, a.nombre, a.cantidad
+             HAVING a.cantidad <> COALESCE(SUM(ss.cantidad), 0)"
         );
 
         $this->reportar(
-            'repuestos.cantidad distinto de la suma por sucursal',
+            "{$tabla}.cantidad distinto de la suma por sucursal",
             collect($filas),
             ['id', 'nombre', 'total_cacheado', 'suma_sucursales'],
         );
     }
 
+    private function costoRegalosDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT p.id, p.imei, p.costo_regalos, COALESCE(SUM(g.subtotal_costo), 0) AS suma_regalos
+               FROM productos p
+          LEFT JOIN productos_regalos g ON g.producto_id = p.id
+           GROUP BY p.id, p.imei, p.costo_regalos
+             HAVING ABS(p.costo_regalos - COALESCE(SUM(g.subtotal_costo), 0)) > 0.009'
+        );
+
+        $this->reportar('costo_regalos distinto de la suma de regalos', collect($filas), ['id', 'imei', 'costo_regalos', 'suma_regalos']);
+    }
+
+    private function costoTotalDescuadrado(): void
+    {
+        $filas = DB::table('productos')
+            ->whereRaw('ABS(costo_total - (costo_unidad + costo_regalos + costo_reparacion)) > 0.009')
+            ->select('id', 'imei', 'costo_unidad', 'costo_regalos', 'costo_reparacion', 'costo_total')
+            ->get();
+
+        $this->reportar('costo_total distinto de la suma de sus partes', $filas, ['id', 'imei', 'costo_unidad', 'costo_regalos', 'costo_reparacion', 'costo_total']);
+    }
+
+    /** La linea de compra del equipo y su costo_unidad: solo los escribe CompraService. */
+    private function costoCompraDescuadrado(): void
+    {
+        $filas = DB::table('compras_detalles as cd')
+            ->join('productos as p', 'p.id', '=', 'cd.producto_id')
+            ->whereRaw('ABS(cd.costo - p.costo_unidad) > 0.009')
+            ->select('p.id', 'p.imei', 'p.costo_unidad', 'cd.costo', 'cd.compra_id')
+            ->get();
+
+        $this->reportar('Costo de la linea de compra distinto del costo_unidad', $filas, ['id', 'imei', 'costo_unidad', 'costo', 'compra_id']);
+    }
+
+    private function totalVentaDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT v.id, v.total, COALESCE(SUM(d.subtotal), 0) - v.descuento + v.mano_obra AS calculado
+               FROM ventas v
+          LEFT JOIN ventas_detalles d ON d.venta_id = v.id
+           GROUP BY v.id, v.total, v.descuento, v.mano_obra
+             HAVING ABS(v.total - (COALESCE(SUM(d.subtotal), 0) - v.descuento + v.mano_obra)) > 0.009'
+        );
+
+        $this->reportar('ventas.total distinto de sus lineas', collect($filas), ['id', 'total', 'calculado']);
+    }
+
+    private function totalCompraDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT c.id, c.total, COALESCE(SUM(d.subtotal), 0) AS calculado
+               FROM compras c
+          LEFT JOIN compras_detalles d ON d.compra_id = c.id
+           GROUP BY c.id, c.total
+             HAVING ABS(c.total - COALESCE(SUM(d.subtotal), 0)) > 0.009'
+        );
+
+        $this->reportar('compras.total distinto de sus lineas', collect($filas), ['id', 'total', 'calculado']);
+    }
+
     /** Imprime una comprobacion y cuenta el hallazgo si trajo filas. */
-    private function reportar(string $titulo, $filas, array $columnas): void
+    private function reportar(string $titulo, Collection $filas, array $columnas): void
     {
         $this->newLine();
 
