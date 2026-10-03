@@ -1,0 +1,18 @@
+services:
+  digital-world:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    image: digital-world
+    working_dir: /var/www/html/
+    restart: always
+    container_name: digital-world
+    hostname: digital-world
+    volumes:
+      - ./:/var/www/html/:rw
+    networks:
+      - server-network
+
+networks:
+  server-network:
+    external: true

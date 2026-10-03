@@ -1,0 +1,287 @@
+<?php
+
+namespace App\Livewire\CompraLote\Modals;
+
+use App\Enums\ProductoColor;
+use App\Enums\ProductoEstado;
+use App\Enums\ProductoVersion;
+use App\Models\Producto;
+use App\Models\ProductoImagen;
+use App\Models\Sucursal;
+use App\Services\EstadoProductoService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Livewire\Component;
+use Livewire\Attributes\On;
+
+
+class CompraLoteProductoEditModal extends Component
+{
+
+    public $openModal = false;
+    public $selectedModel;
+
+    public $descripcion;
+    public $colores = [];
+    public $sucursales = [];
+
+    public $photos = [];
+    public $photosToDelete = [];
+
+    protected $listeners = ['photoCaptured'];
+    public $currentPhotoIndex = 0;
+    public $producto;
+
+
+    public function render()
+    {
+        return view('livewire.compra-lote.modals.compra-lote-producto-edit-modal');
+    }
+
+    public function mount()
+    {
+        $this->colores = ProductoColor::cases();
+    }
+
+    #[On('openCompraLoteProductoEditModal')]
+    public function openModal($id)
+    {
+        $producto = Producto::with(['modelo', 'modelo.almacenamientos', 'imagenes',])->find($id);
+        $this->producto = $producto->toArray();
+        $this->producto['nombre'] = $producto->modelo->nombre;
+        $this->producto['status'] = $producto->estado;
+        $this->producto['disponible_catalogo'] = (bool)$producto->disponible_catalogo;
+        $this->producto['sin_reparacion'] = (bool)$producto->sin_reparacion;
+
+        // Activas mas la actual: si el equipo esta en una sucursal ya
+        // desactivada, el select no puede quedar sin su opcion.
+        $this->sucursales = Sucursal::paraSelect($producto->sucursal_id);
+
+        $this->photos = $producto->imagenes->pluck('base64')->toArray();
+
+        $this->selectedModel = $producto->modelo;
+
+        $this->descripcion = $producto->descripcion;
+
+        $this->openModal = true;
+    }
+
+    public function updatedProducto()
+    {
+        $this->generateDescription();
+    }
+
+    protected function generateDescription()
+    {
+        $parts = [
+            $this->selectedModel->nombre ?? '',
+            "color {$this->producto['color']}",
+            "de {$this->producto['almacenamiento']}",
+            "con {$this->producto['bateria_porcentaje']}% de batería",
+            "IMEI: {$this->producto['imei']}",
+        ];
+
+        $this->descripcion = trim(implode(' ', array_filter($parts)));
+    }
+
+    public function updateProduct()
+    {
+        // FUERA de la transaccion y antes del try: ValidationException extiende
+        // Exception, asi que el catch de abajo la atrapaba y convertia los
+        // errores por campo en un unico addError('general'). El usuario veia
+        // "Error: The given data was invalid" sin saber que campo arreglar.
+        $this->validate([
+            'producto.almacenamiento' => 'required',
+            'producto.color' => 'required',
+            'producto.version' => 'nullable',
+            'producto.bateria_porcentaje' => 'required|numeric|min:0|max:100',
+            'producto.costo_unidad' => 'required|numeric|min:0',
+            'producto.costo_envio' => 'required|numeric|min:0',
+            'producto.precio_cliente' => 'required|numeric|min:0',
+            'producto.precio_vendedor' => 'required|numeric|min:0',
+            'producto.status' => 'required',
+            // La unicidad del IMEI tambien al EDITAR: aqui era un 'required' a
+            // secas, asi que ponerle a un producto el IMEI de otro se guardaba
+            // sin protestar. El ignore del propio id es para que reguardar sin
+            // cambiar el IMEI no choque consigo mismo.
+            'producto.imei' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('productos', 'imei')->ignore($this->producto['id'] ?? null),
+            ],
+            'producto.disponible_catalogo' => 'required',
+            'producto.sin_reparacion' => 'required',
+            'producto.sucursal_id' => 'required',
+            'producto.estado_grado' => 'required',
+        ]);
+
+        $estados = app(EstadoProductoService::class);
+
+        try {
+            DB::beginTransaction();
+
+            $product = Producto::with('imagenes')->find($this->producto['id']);
+            if (!$product) {
+                throw new \Exception("Product not found");
+            }
+
+            // El estado sale del update general y pasa por el servicio, que
+            // ademas deja la fila de historial. Por aqui se podia cambiar el
+            // estado de un telefono sin dejar NINGUNA traza, y CLAUDE.md
+            // promete que el historial es la unica que hay.
+            $estadoNuevo = $this->producto['status'];
+            $estadoAnterior = $product->estado;
+
+            $product->update([
+                'imei' => $this->producto['imei'],
+                'almacenamiento' => $this->producto['almacenamiento'],
+                'color' => $this->producto['color'],
+                'version' => $this->producto['version'] ?? null,
+                'bateria_porcentaje' => $this->producto['bateria_porcentaje'],
+                'costo_unidad' => $this->producto['costo_unidad'],
+                'costo_envio' => $this->producto['costo_envio'],
+                'costo_total' => $this->producto['costo_total'],
+                'precio_cliente' => $this->producto['precio_cliente'],
+                'precio_vendedor' => $this->producto['precio_vendedor'],
+                'descripcion' => $this->descripcion,
+                'detalles' => $this->producto['detalles'],
+                'estado_grado' => $this->producto['estado_grado'],
+                'producto_modelo_id' => $this->selectedModel['id'],
+                'disponible_catalogo' => $this->producto['disponible_catalogo'],
+                'sin_reparacion' => $this->producto['sin_reparacion'],
+                'sucursal_id' => $this->producto['sucursal_id'],
+            ]);
+
+            if (!empty($this->photosToDelete)) {
+                ProductoImagen::whereIn('id', $this->photosToDelete)->delete();
+            }
+
+            $existingPhotos = $product->imagenes->pluck('base64', 'id')->toArray();
+            $processedPhotos = 0;
+
+            foreach ($this->photos as $photo) {
+                if (is_array($photo)) {
+                    $photoBase64 = $photo['base64'] ?? $photo;
+                    $photoId = $photo['id'] ?? null;
+                } else {
+                    $photoBase64 = $photo;
+                    $photoId = null;
+                }
+
+                $existingPhotoId = array_search($photoBase64, $existingPhotos);
+
+                if ($existingPhotoId === false && !$photoId) {
+                    $product->imagenes()->create(['base64' => $photoBase64]);
+                    $processedPhotos++;
+                }
+            }
+
+            if ($estadoNuevo !== $estadoAnterior) {
+                $estados->cambiar(
+                    $product->id,
+                    ProductoEstado::from($estadoAnterior),
+                    ProductoEstado::from($estadoNuevo),
+                    "Estado cambiado desde la edicion del lote",
+                );
+            }
+
+            $product->compra->recalculate();
+            DB::commit();
+            $this->updateAndClose();
+        } catch (ValidationException $e) {
+            DB::rollBack();
+
+            // La precondicion del estado habla en la bolsa 'detalles'; se
+            // reexpone para que el blade la muestre donde ya mira.
+            $this->addError('general', implode(' ', $e->validator->errors()->all()));
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Fallo al editar el producto del lote', [
+                'producto_id' => $this->producto['id'] ?? null,
+                'excepcion' => $e,
+            ]);
+            $this->addError('general', 'Error: ' . $e->getMessage());
+        }
+    }
+
+    public function updateAndClose()
+    {
+        $this->closeModal();
+        $this->dispatch('refreshProductoTable');
+    }
+
+    // Photo handling methods
+    public function photoCapturedEdit($photoData)
+    {
+        $this->photos[] = $photoData;
+        $this->dispatch('notify', 'Foto agregada correctamente');
+    }
+
+    public function removePhoto()
+    {
+        if (!isset($this->photos[$this->currentPhotoIndex])) {
+            return;
+        }
+
+        if (isset($this->producto['imagenes'][$this->currentPhotoIndex]['id'])) {
+            $this->photosToDelete[] = $this->producto['imagenes'][$this->currentPhotoIndex]['id'];
+            unset($this->producto['imagenes'][$this->currentPhotoIndex]);
+
+            if (isset($this->producto['imagenes'])) {
+                $this->producto['imagenes'] = array_values($this->producto['imagenes']);
+            }
+        }
+
+        unset($this->photos[$this->currentPhotoIndex]);
+        $this->photos = array_values($this->photos);
+
+        if ($this->currentPhotoIndex > 0 && $this->currentPhotoIndex >= count($this->photos)) {
+            $this->currentPhotoIndex--;
+        }
+
+        if (empty($this->photos)) {
+            $this->currentPhotoIndex = 0;
+        }
+    }
+    public function prevPhoto()
+    {
+        $this->currentPhotoIndex = $this->currentPhotoIndex > 0
+            ? $this->currentPhotoIndex - 1
+            : count($this->photos) - 1;
+    }
+
+    public function nextPhoto()
+    {
+        $this->currentPhotoIndex = $this->currentPhotoIndex < count($this->photos) - 1
+            ? $this->currentPhotoIndex + 1
+            : 0;
+    }
+
+    public function goToPhoto($index)
+    {
+        $this->currentPhotoIndex = $index;
+    }
+
+    public function closeModal()
+    {
+        $this->openModal = false;
+    }
+
+    public function updatedProductoCostoUnidad()
+    {
+        $this->calculateCostoTotal();
+    }
+
+    public function updatedProductoCostoEnvio()
+    {
+        $this->calculateCostoTotal();
+    }
+
+    private function calculateCostoTotal()
+    {
+        $this->producto['costo_total'] = $this->producto['costo_unidad'] + $this->producto['costo_envio'] + $this->producto['costo_reparacion'];
+    }
+}
