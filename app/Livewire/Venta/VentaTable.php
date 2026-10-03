@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Venta;
 
+use App\Enums\LineaTipo;
 use App\Models\Venta;
 use Carbon\Carbon;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
@@ -31,42 +32,49 @@ class VentaTable extends DataTableComponent
 
     public function configure(): void
     {
-        $this->setPrimaryKey('id');
+        $this->setTableName('ventas');
+        $this->setPrimaryKey('id')
+            ->setDefaultSort('ventas.id', 'desc')
+            ->setSearchPlaceholder('Buscar por nº de venta, cliente o vendedor...');
     }
 
     public function columns(): array
     {
         return [
-            Column::make("ID", "id")
+            Column::make('Nº', 'id')
                 ->sortable()
                 ->searchable(),
-            Column::make("Sucursal", "sucursal.nombre")
-                ->sortable(),
-            Column::make("Cliente")
+            Column::make('Fecha', 'created_at')
                 ->sortable()
-                ->format(fn($value, $row) => $row->nombreCliente()),
-            Column::make("Subtotal", "subtotal")
+                ->format(fn($value) => Carbon::parse($value)->format('d/m/Y H:i')),
+            Column::make('Sucursal', 'sucursal.nombre')
+                ->sortable()
+                ->collapseOnTablet(),
+            // La ficha manda; el texto congelado es el respaldo (nombreCliente()).
+            // La busqueda mira las dos columnas para encontrar tambien las viejas.
+            Column::make('Cliente', 'cliente')
+                ->format(fn($value, $row) => $row->nombreCliente() ?: '—')
+                ->searchable(fn(Builder $q, $term) => $q
+                    ->orWhere('ventas.cliente', 'like', '%' . $term . '%')
+                    ->orWhereHas('fichaCliente', fn($c) => $c->where('nombre', 'like', '%' . $term . '%'))),
+            Column::make('Equipos', 'id')
+                ->label(fn($row) => (int) $row->equipos)
+                ->setCustomSlug('equipos'),
+            Column::make('Artículos', 'id')
+                ->label(fn($row) => (int) $row->articulos)
+                ->setCustomSlug('articulos')
+                ->collapseOnTablet(),
+            Column::make('Descuento', 'descuento')
+                ->sortable()
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2))
+                ->collapseOnTablet(),
+            Column::make('Total', 'total')
+                ->sortable()
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
+            Column::make('Vendedor', 'user.name')
+                ->sortable()
                 ->searchable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Descuento", "descuento")
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Total", "total")
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Total (Bs)", "total_bs")
-                ->sortable()
-                ->format(fn($value) => 'Bs. ' . number_format($value, 2)),
-            Column::make("Cant. Productos", "id")
-                ->sortable()
-                ->format(function ($value, $row) {
-                    return $row->detalles()->count();
-                })->searchable(),
-            Column::make("Fecha", "created_at")
-                ->sortable(),
-            Column::make("Vendedor", "user.name")
-                ->sortable()
-                ->searchable(),
+                ->collapseOnTablet(),
             Column::make('Acciones', 'id')
                 ->format(fn($value, $row) => view('livewire.venta.actions-buttons', ['row' => $row])),
         ];
@@ -78,6 +86,10 @@ class VentaTable extends DataTableComponent
         // esto, y son diez filas por pagina.
         return Venta::query()
             ->with('fichaCliente:id,nombre')
+            ->withCount([
+                'detalles as equipos' => fn($q) => $q->where('tipo', LineaTipo::Producto->value),
+            ])
+            ->withSum(['detalles as articulos' => fn($q) => $q->where('tipo', '!=', LineaTipo::Producto->value)], 'cantidad')
             ->when($this->fechaDesde, function ($query) {
                 $query->where('ventas.created_at', '>=', Carbon::parse($this->fechaDesde)->startOfDay());
             })
@@ -90,7 +102,7 @@ class VentaTable extends DataTableComponent
             ->when(!empty($this->sucursales), function ($query) {
                 $query->whereIn('ventas.sucursal_id', $this->sucursales);
             })
-            ->orderby('ventas.created_at', 'desc');
+            ;
     }
 
     #[On('refreshVentaTable')]

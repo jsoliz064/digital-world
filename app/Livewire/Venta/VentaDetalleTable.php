@@ -2,71 +2,70 @@
 
 namespace App\Livewire\Venta;
 
-use App\Models\VentaProducto;
+use App\Enums\LineaTipo;
+use App\Models\VentaDetalle as Linea;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
 use Rappasoft\LaravelLivewireTables\Views\Column;
-use Livewire\Attributes\On;
-use Illuminate\Database\Eloquent\Builder;
-use Rappasoft\LaravelLivewireTables\Views\Filters\MultiSelectDropdownFilter;
-use Rappasoft\LaravelLivewireTables\Views\Filters\SelectFilter;
-use Rappasoft\LaravelLivewireTables\Views\Filters\DateFilter;
 
+/** Las lineas de una venta: equipos, repuestos, accesorios y cobros de taller. */
 class VentaDetalleTable extends DataTableComponent
 {
-    protected $model = VentaProducto::class;
-    public $venta;
+    protected $model = Linea::class;
 
-    public function mount($venta)
+    #[Locked]
+    public int $ventaId;
+
+    public function mount($ventaId)
     {
-        $this->venta = $venta;
+        $this->ventaId = (int) $ventaId;
     }
 
     public function configure(): void
     {
-        $this->setPrimaryKey('id');
+        $this->setTableName('lineas');
+        $this->setPrimaryKey('id')
+            ->setSearchDisabled()
+            ->setPaginationDisabled()
+            ->setAdditionalSelects(['ventas_detalles.producto_id', 'ventas_detalles.repuesto_id', 'ventas_detalles.accesorio_id', 'ventas_detalles.producto_reparacion_repuesto_id']);
     }
 
     public function columns(): array
     {
         return [
-            Column::make("ID", "id")
-                ->sortable()
-                ->searchable(),
-            Column::make("Producto", "producto.descripcion")
-                ->sortable()
-                ->searchable(),
-            Column::make("Precio ($)", "precio")
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Descuento ($)", "descuento")
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Subtotal ($)", "subtotal")
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format($value, 2)),
-            Column::make("Subtotal (Bs)", "subtotal_bs")
-                ->sortable()
-                ->format(fn($value) => 'Bs. ' . number_format($value, 2)),
-            Column::make("Garantía (Meses)", "garantia_meses")
-                ->sortable()
-                ->format(fn($value) => $value ? $value . ' meses' : 'N/A'),
-            Column::make("Expira Garantía", "garantia_fecha_exp")
-                ->sortable()
-                ->format(fn($value) => $value ? Carbon::parse($value)->format('d/m/Y') : 'N/A'),
+            Column::make('Tipo', 'tipo')
+                ->format(fn($value) => LineaTipo::badge($value))
+                ->html(),
+            Column::make('Detalle', 'id')
+                ->format(fn($value, $row) => e($row->descripcion())
+                    . ($row->stockYaDescontado() ? '<span class="block text-xs text-green-700">Cobro de taller (stock ya descontado en la reparación)</span>' : ''))
+                ->html(),
+            Column::make('Cant.', 'cantidad'),
+            Column::make('Precio', 'precio')
+                ->format(fn($v) => 'Bs ' . number_format((float) $v, 2)),
+            Column::make('Desc.', 'descuento')
+                ->format(fn($v) => 'Bs ' . number_format((float) $v, 2))
+                ->collapseOnTablet(),
+            Column::make('Subtotal', 'subtotal')
+                ->format(fn($v) => 'Bs ' . number_format((float) $v, 2)),
+            Column::make('Garantía', 'garantia_fecha_exp')
+                ->format(fn($v, $row) => $v ? $row->garantia_meses . ' m · vence ' . Carbon::parse($v)->format('d/m/Y') : '—')
+                ->collapseOnTablet(),
             Column::make('Acciones', 'id')
-                ->format(function ($value, $row, Column $column) {
-                    return view('livewire.venta.actions-detalle-buttons', [
-                        'row' => $row
-                    ]);
-                })
+                ->format(fn($value, $row) => view('livewire.venta.actions-detalle-buttons', ['row' => $row])),
         ];
     }
 
     public function builder(): Builder
     {
-        return VentaProducto::query()
-            ->where('venta_id', $this->venta->id);
+        return Linea::query()
+            ->with(['producto.modelo', 'repuesto', 'accesorio'])
+            ->where('ventas_detalles.venta_id', $this->ventaId)
+            ->orderByRaw('ventas_detalles.producto_id IS NULL')
+            ->orderBy('ventas_detalles.id');
     }
 
     #[On('refreshVentaDetalleTable')]

@@ -1,5 +1,5 @@
 <x-main-layout>
     <div class="h-full">
-        @livewire('venta.venta-create')
+        @livewire('venta.venta-form')
     </div>
 </x-main-layout>

@@ -2,87 +2,85 @@
 
 namespace App\Livewire\Venta\Modals;
 
-use App\Models\VentaProducto;
+use App\Models\VentaDetalle;
 use App\Services\AnulacionVentaService;
-use Livewire\Component;
-use Livewire\Attributes\On;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\On;
+use Livewire\Component;
 
+/**
+ * Anular UNA linea de una venta (AnulacionVentaService::anularLinea): un equipo
+ * vuelve a Inventario (descobrando antes sus repuestos de taller), un articulo
+ * devuelve su stock a la sucursal de la linea, un cobro de taller se borra sin
+ * tocar stock. Si era la ultima linea, la venta desaparece.
+ */
 class VentaDetalleDestroyModal extends Component
 {
-    
     public $openModal = false;
-    public ?VentaProducto $ventaProducto = null;
-
-    public function render()
-    {
-        return view('livewire.venta.modals.venta-detalle-destroy-modal');
-    }
+    public ?int $lineaId = null;
 
     #[On('openVentaDetalleDestroyModal')]
     public function openModal($id)
     {
-        $this->ventaProducto = VentaProducto::with('producto', 'venta')->find($id);
-        if ($this->ventaProducto) {
-            $this->openModal = true;
-        } else {
-            toastr()->error('No se pudo encontrar el detalle de la venta para eliminar.');
-        }
-    }
+        $this->lineaId = VentaDetalle::find($id)?->id;
 
-    public function eliminarDetalle(): void
-    {
-        if (!$this->ventaProducto) {
-            toastr()->error('Error: No se ha seleccionado ningún producto para eliminar.');
+        if (!$this->lineaId) {
+            toastr()->error('Esa línea ya no existe.');
+
             return;
         }
 
+        $this->openModal = true;
+    }
 
-        // Se relee de la base en vez de confiar en el modelo hidratado: entre
-        // abrir el modal y confirmar, otro pudo anular este mismo detalle, y
-        // Livewire rehidrata por id sin volver a comprobar que siga ahi.
-        $detalle = VentaProducto::with('producto', 'venta')->find($this->ventaProducto->id);
+    public function eliminarDetalle()
+    {
+        abort_unless(Auth::user()?->can('venta.detalle.delete'), 403);
 
-        if (!$detalle) {
-            toastr()->info('Ese detalle ya se habia anulado. No se hizo nada.');
+        // Se relee de la base: entre abrir el modal y confirmar, otro pudo anularla.
+        $linea = VentaDetalle::with('venta')->find($this->lineaId);
+
+        if (!$linea) {
+            toastr()->info('Esa línea ya se había anulado. No se hizo nada.');
             $this->dispatch('refreshVentaDetalleTable');
-            $this->dispatch('refreshVentaDetalle');
             $this->closeModal();
 
             return;
         }
 
         try {
-            DB::transaction(fn() => app(AnulacionVentaService::class)->anularDetalle($detalle));
+            $ventaBorrada = DB::transaction(fn() => app(AnulacionVentaService::class)->anularLinea($linea));
         } catch (ValidationException $e) {
-            // El mensaje de la precondicion ("el producto ya esta en X") tiene
-            // que llegar al usuario: antes lo tragaba el catch generico y solo
-            // se veia "ocurrio un error", sin saber si se habia aplicado algo.
+            // La precondicion ("el producto ya esta en X") tiene que llegar al usuario.
             toastr()->error(implode(' ', $e->validator->errors()->all()));
-
-            return;
-        } catch (\Throwable $e) {
-            // Se registra: el catch silencioso de antes borraba la causa, y
-            // este metodo toca tres tablas.
-            Log::error('Fallo al anular el detalle de venta', [
-                'venta_producto_id' => $detalle->id,
-                'excepcion' => $e,
-            ]);
-
-            toastr()->error('Ocurrió un error al intentar eliminar el detalle. Por favor, inténtelo de nuevo.');
 
             return;
         }
 
+        toastr()->success($ventaBorrada ? 'Era la última línea: la venta quedó anulada.' : 'Línea anulada.');
+
+        if ($ventaBorrada) {
+            return redirect()->route('ventas');
+        }
+
         $this->dispatch('refreshVentaDetalleTable');
         $this->dispatch('refreshVentaDetalle');
-        toastr()->success('Detalle de venta eliminado exitosamente.');
         $this->closeModal();
     }
+
     public function closeModal()
     {
         $this->reset();
+    }
+
+    public function render()
+    {
+        return view('livewire.venta.modals.venta-detalle-destroy-modal', [
+            'linea' => $this->openModal && $this->lineaId
+                ? VentaDetalle::with(['producto.modelo', 'repuesto', 'accesorio'])->find($this->lineaId)
+                : null,
+        ]);
     }
 }

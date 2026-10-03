@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Venta;
 
+use App\Enums\LineaTipo;
 use App\Models\Sucursal;
 use App\Models\User;
 use App\Models\Venta;
@@ -15,9 +16,9 @@ class VentaIndex extends Component
     public array $selectedUsers = [];
     public array $selectedSucursales = [];
 
-    public float $totalVentaUsd = 0;
-    public float $totalVentaBs = 0;
-    public int $cantidadProductos = 0;
+    public float $totalVenta = 0;
+    public int $cantidadEquipos = 0;
+    public int $cantidadArticulos = 0;
     public int $cantidadVentas = 0;
     public float $totalGanancia = 0;
 
@@ -50,25 +51,25 @@ class VentaIndex extends Component
         ]);
     }
 
+    /**
+     * Totales del periodo filtrado, en Bs. La ganancia es total - costo_total
+     * de cada venta (mano de obra incluida en los dos, asi que se cancela).
+     */
     public function calculateTotals()
     {
         $query = Venta::query()
             ->when($this->fechaDesde, fn($q) => $q->where('ventas.created_at', '>=', Carbon::parse($this->fechaDesde)->startOfDay()))
             ->when($this->fechaHasta, fn($q) => $q->where('ventas.created_at', '<=', Carbon::parse($this->fechaHasta)->endOfDay()))
-            ->when(!empty($this->selectedUsers), fn($q) => $q->whereIn('user_id', $this->selectedUsers))
+            ->when(!empty($this->selectedUsers), fn($q) => $q->whereIn('ventas.user_id', $this->selectedUsers))
             ->when(!empty($this->selectedSucursales), fn($q) => $q->whereIn('ventas.sucursal_id', $this->selectedSucursales));
 
-        $this->totalVentaUsd = (clone $query)->sum('total');
-        $this->totalVentaBs = (clone $query)->sum('total_bs');
+        $this->totalVenta = (float) (clone $query)->sum('total');
         $this->cantidadVentas = (clone $query)->count();
+        $this->totalGanancia = round($this->totalVenta - (float) (clone $query)->sum('costo_total'), 2);
 
-        $detailsQuery = (clone $query)->join('ventas_productos', 'ventas.id', '=', 'ventas_productos.venta_id');
-
-        $this->cantidadProductos = (clone $detailsQuery)->count('ventas_productos.id');
-
-        $totalCosto = (clone $detailsQuery)->sum('ventas_productos.costo');
-
-        $this->totalGanancia = $this->totalVentaUsd - $totalCosto;
+        $lineas = (clone $query)->join('ventas_detalles', 'ventas.id', '=', 'ventas_detalles.venta_id');
+        $this->cantidadEquipos = (clone $lineas)->where('ventas_detalles.tipo', LineaTipo::Producto->value)->count();
+        $this->cantidadArticulos = (int) (clone $lineas)->where('ventas_detalles.tipo', '!=', LineaTipo::Producto->value)->sum('ventas_detalles.cantidad');
     }
 
     public function render()

@@ -4,7 +4,7 @@
     {{-- Plegable: las cinco tarjetas ocupaban toda la primera pantalla del
          movil antes de llegar a la tabla, que es a lo que se entra. Abierto en
          escritorio, cerrado en movil, igual que en repuestos. --}}
-    @can('venta.repuesto.reporte')
+    @can('venta.reporte')
         <x-collapse-card title="Resumen" :open-on-desktop="true">
             {{-- Dos columnas desde el movil. Son cinco tarjetas, asi que la
                  ultima (Ganancia) ocupa el ancho completo en la ultima fila en
@@ -13,49 +13,25 @@
             <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6"
                 wire:loading.class="opacity-50 animate-pulse" wire:target="applyFilters">
 
-                <!-- Card Total Venta (USD) -->
-                <div
-                    class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Total Venta ($)</h3>
-                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        $ {{ number_format($totalVentaUsd, 2) }}
-                    </p>
+                <div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Total vendido</h3>
+                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">Bs {{ number_format($totalVenta, 2) }}</p>
                 </div>
-
-                <!-- Card Total Venta (Bs) -->
-                <div
-                    class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Total Venta (Bs)</h3>
-                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        Bs. {{ number_format($totalVentaBs, 2) }}
-                    </p>
+                <div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Ventas</h3>
+                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $cantidadVentas }}</p>
                 </div>
-
-                <!-- Card Ventas Realizadas -->
-                <div
-                    class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Ventas Realizadas</h3>
-                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        {{ $cantidadVentas }}
-                    </p>
+                <div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Equipos vendidos</h3>
+                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $cantidadEquipos }}</p>
                 </div>
-
-                <!-- Card Cantidad de Productos -->
-                <div
-                    class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Productos Vendidos</h3>
-                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                        {{ $cantidadProductos }}
-                    </p>
+                <div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+                    <h3 class="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Repuestos y accesorios</h3>
+                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $cantidadArticulos }}</p>
                 </div>
-
-                <!-- Card Ganancia ($) -->
-                <div
-                    class="col-span-2 lg:col-span-1 bg-green-100 dark:bg-green-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-green-200 dark:border-green-700">
-                    <h3 class="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300">Ganancia ($)</h3>
-                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-green-900 dark:text-green-100">
-                        $ {{ number_format($totalGanancia, 2) }}
-                    </p>
+                <div class="col-span-2 lg:col-span-1 bg-green-100 dark:bg-green-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-green-200 dark:border-green-700">
+                    <h3 class="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300">Ganancia</h3>
+                    <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-green-900 dark:text-green-100">Bs {{ number_format($totalGanancia, 2) }}</p>
                 </div>
             </div>
         </x-collapse-card>
@@ -105,7 +81,7 @@
     @can('venta.create')
         <div class="mb-4">
             <x-primary-button wire:click="ventaCreate()">
-                Registrar Nueva Venta
+                Registrar venta
             </x-primary-button>
         </div>
     @endcan
