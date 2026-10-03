@@ -18,6 +18,7 @@
         "vite": "^6.2.4"
     },
     "dependencies": {
+        "barcode-detector": "^3.2.2",
         "chart.js": "^4.4.9"
     }
 }

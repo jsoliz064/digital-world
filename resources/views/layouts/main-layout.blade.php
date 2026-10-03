@@ -501,7 +501,19 @@
                                                 <i
                                                     class="fa-solid fa-list text-lg w-5 h-5 flex items-center justify-center"></i>
                                             </span>
-                                            <span class="ml-2 tracking-wide truncate">Categorias Repuestos</span>
+                                            <span class="ml-2 tracking-wide truncate">Categorías Repuestos</span>
+                                        </a>
+                                    </li>
+                                @endcan
+                                @can('accesorio-categoria.index')
+                                    <li>
+                                        <a href="{{ route('accesorios.categorias') }}"
+                                            class="relative flex items-center h-10 pl-6 pr-6 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
+                                            <span class="inline-flex justify-center items-center ml-4">
+                                                <i
+                                                    class="fa-solid fa-tags text-lg w-5 h-5 flex items-center justify-center"></i>
+                                            </span>
+                                            <span class="ml-2 tracking-wide truncate">Categorías Accesorios</span>
                                         </a>
                                     </li>
                                 @endcan
@@ -545,104 +557,29 @@
                             </ul>
                         </li>
 
-                        <li class="relative submenu-container">
-                            <button
-                                class="submenu-toggle relative flex flex-row items-center w-full h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
-                                <span class="inline-flex justify-center items-center ml-4">
-                                    <i class="fa-solid fa-shop text-lg w-5 h-5 flex items-center justify-center"></i>
-                                </span>
-                                <span class="ml-2 text-sm tracking-wide truncate">Compras</span>
-                                <span class="submenu-arrow ml-auto mr-4 transition-transform duration-300">
-                                    <svg class="w-4 h-4 ml-2 text-gray-300" fill="none" viewBox="0 0 24 24"
-                                        stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </span>
-                            </button>
+                        @can('compra.index')
+                            <li>
+                                <a href="{{ route('compras') }}"
+                                    class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
+                                    <span class="inline-flex justify-center items-center ml-4">
+                                        <i class="fa-solid fa-shop text-lg w-5 h-5 flex items-center justify-center"></i>
+                                    </span>
+                                    <span class="ml-2 text-sm tracking-wide truncate">Compras</span>
+                                </a>
+                            </li>
+                        @endcan
 
-                            <!-- Submenu Items -->
-                            <ul
-                                class="submenu-items space-y-1 overflow-hidden bg-brand-800 dark:bg-gray-800 transition-all duration-300 max-h-0">
-
-                                @can('compra.index')
-                                    <li>
-                                        <a href="{{ route('compras') }}"
-                                            class="relative flex items-center h-10 pl-6 pr-2 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
-                                            <span class="inline-flex justify-center items-center ml-4">
-                                                <i
-                                                    class="fa-solid fa-mobile-screen-button text-lg w-5 h-5 flex items-center justify-center"></i>
-                                            </span>
-                                            <span class="ml-2 tracking-wide truncate">Compras de Productos</span>
-                                        </a>
-                                    </li>
-                                @endcan
-
-                                @can('compra.repuesto.index')
-                                    <li>
-                                        <a href="{{ route('compras.repuestos') }}"
-                                            class="relative flex items-center h-10 pl-6 pr-2 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
-                                            <span class="inline-flex justify-center items-center ml-4">
-                                                <i
-                                                    class="fa-solid fa-screwdriver text-lg w-5 h-5 flex items-center justify-center"></i>
-                                            </span>
-                                            <span class="ml-2 tracking-wide truncate">Compras de Repuestos</span>
-                                        </a>
-                                    </li>
-                                @endcan
-
-                            </ul>
-                        </li>
-
-                        <li class="relative submenu-container">
-                            <button
-                                class="submenu-toggle relative flex flex-row items-center w-full h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
-                                <span class="inline-flex justify-center items-center ml-4">
-                                    <i
-                                        class="fas fa-cash-register text-lg w-5 h-5 flex items-center justify-center"></i>
-                                </span>
-                                <span class="ml-2 text-sm tracking-wide truncate">Ventas</span>
-                                <span class="submenu-arrow ml-auto mr-4 transition-transform duration-300">
-                                    <svg class="w-4 h-4 ml-2 text-gray-300" fill="none" viewBox="0 0 24 24"
-                                        stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </span>
-                            </button>
-
-                            <!-- Submenu Items -->
-                            <ul
-                                class="submenu-items space-y-1 overflow-hidden bg-brand-800 dark:bg-gray-800 transition-all duration-300 max-h-0">
-
-                                @can('venta.index')
-                                    <li>
-                                        <a href="{{ route('ventas') }}"
-                                            class="relative flex items-center h-10 pl-6 pr-2 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
-                                            <span class="inline-flex justify-center items-center ml-4">
-                                                <i
-                                                    class="fa-solid fa-mobile-screen-button text-lg w-5 h-5 flex items-center justify-center"></i>
-                                            </span>
-                                            <span class="ml-2 tracking-wide truncate">Ventas de Productos</span>
-                                        </a>
-                                    </li>
-                                @endcan
-
-                                @can('venta.repuesto.index')
-                                    <li>
-                                        <a href="{{ route('ventas.repuestos') }}"
-                                            class="relative flex items-center h-10 pl-6 pr-2 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
-                                            <span class="inline-flex justify-center items-center ml-4">
-                                                <i
-                                                    class="fa-solid fa-screwdriver text-lg w-5 h-5 flex items-center justify-center"></i>
-                                            </span>
-                                            <span class="ml-2 tracking-wide truncate">Ventas de Repuestos</span>
-                                        </a>
-                                    </li>
-                                @endcan
-
-                            </ul>
-                        </li>
+                        @can('venta.index')
+                            <li>
+                                <a href="{{ route('ventas') }}"
+                                    class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
+                                    <span class="inline-flex justify-center items-center ml-4">
+                                        <i class="fas fa-cash-register text-lg w-5 h-5 flex items-center justify-center"></i>
+                                    </span>
+                                    <span class="ml-2 text-sm tracking-wide truncate">Ventas</span>
+                                </a>
+                            </li>
+                        @endcan
 
                         @can('reporte.index')
                             <li>
@@ -681,6 +618,8 @@
 
         </div>
     </div>
+
+    <x-escaner-overlay />
 
     @livewireScripts
 
