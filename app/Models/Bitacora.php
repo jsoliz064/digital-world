@@ -11,7 +11,7 @@ use LogicException;
  * Una fila por hecho, sobre cualquier modelo.
  *
  * Es INMUTABLE: los hooks de abajo impiden editarla y borrarla, igual que los
- * candados de ClienteOrden y RepuestoMovimiento. No es decoracion -- la tabla a
+ * candados de MovimientoStock. No es decoracion -- la tabla a
  * la que sustituye se editaba (ProductoEstadoModal sobrescribia la descripcion
  * de una fila anterior, perdiendo el texto para siempre) y se borraba
  * (RepuestosDeReparacionService::cancelarCobros). Un historial que se puede
@@ -36,10 +36,10 @@ class Bitacora extends Model
     /** Los enlaces de contexto que acepta registrar() y anotar(). */
     public const ENLACES = [
         'venta_id',
-        'venta_repuesto_id',
-        'compra_repuesto_id',
+        'compra_id',
         'producto_reparacion_id',
         'repuesto_id',
+        'accesorio_id',
         'sucursal_id',
     ];
 
@@ -59,7 +59,7 @@ class Bitacora extends Model
      *
      * Los cambios de modelo los captura BitacoraObserver solo; esta via es para
      * lo que no pasa por un save(): una reparacion que termina sin mover el
-     * estado, o un ajuste de stock -- que StockRepuestoService hace con SQL
+     * estado, o un ajuste de stock -- que StockService hace con SQL
      * crudo (DB::statement / DB::update), asi que ningun observer lo ve.
      */
     public static function registrar(
@@ -76,7 +76,7 @@ class Bitacora extends Model
             'descripcion' => $descripcion,
             'cambios' => $cambios,
             // Puede ser null y es correcto: un seeder, un comando o un job no
-            // tienen sesion. Hoy ya hay dos filas asi en productos_historiales.
+            // tienen sesion.
             'user_id' => Auth::id(),
         ] + self::soloEnlaces($enlaces));
     }
@@ -89,10 +89,10 @@ class Bitacora extends Model
      */
     public const TIPOS = [
         Producto::class => 'Teléfono',
-        Repuesto::class => 'Repuesto / accesorio',
-        Venta::class => 'Venta de teléfonos',
-        VentaRepuesto::class => 'Venta de repuestos',
-        CompraRepuesto::class => 'Compra de repuestos',
+        Repuesto::class => 'Repuesto',
+        Accesorio::class => 'Accesorio',
+        Venta::class => 'Venta',
+        Compra::class => 'Compra',
         Cliente::class => 'Cliente',
         User::class => 'Usuario',
     ];
@@ -119,9 +119,9 @@ class Bitacora extends Model
         return match ($this->auditable_type) {
             Producto::class => ['etiqueta' => "Teléfono IMEI {$modelo->imei}", 'url' => route('productos.historial', $id)],
             Repuesto::class => ['etiqueta' => $modelo->nombre, 'url' => route('repuestos.historial', $id)],
+            Accesorio::class => ['etiqueta' => $modelo->nombre, 'url' => route('accesorios.historial', $id)],
             Venta::class => ['etiqueta' => "Venta #{$id}", 'url' => route('ventas.detalles', $id)],
-            VentaRepuesto::class => ['etiqueta' => "Venta de repuestos #{$id}", 'url' => route('ventas.repuestos.editar', $id)],
-            CompraRepuesto::class => ['etiqueta' => "Compra de repuestos #{$id}", 'url' => route('compras.repuestos.editar', $id)],
+            Compra::class => ['etiqueta' => "Compra #{$id}", 'url' => route('compras.detalle', $id)],
             Cliente::class => ['etiqueta' => "Cliente {$modelo->nombre}", 'url' => route('clientes.historial', $id)],
             User::class => ['etiqueta' => "Usuario {$modelo->name}", 'url' => route('users.historial', $id)],
             default => ['etiqueta' => "{$tipo} #{$id}", 'url' => null],
@@ -149,14 +149,14 @@ class Bitacora extends Model
         return $this->belongsTo(Venta::class, 'venta_id');
     }
 
-    public function ventaRepuesto()
+    public function compra()
     {
-        return $this->belongsTo(VentaRepuesto::class, 'venta_repuesto_id');
+        return $this->belongsTo(Compra::class, 'compra_id');
     }
 
-    public function compraRepuesto()
+    public function accesorio()
     {
-        return $this->belongsTo(CompraRepuesto::class, 'compra_repuesto_id');
+        return $this->belongsTo(Accesorio::class, 'accesorio_id');
     }
 
     public function reparacion()

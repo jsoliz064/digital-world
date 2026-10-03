@@ -5,17 +5,21 @@ namespace App\Enums;
 use Illuminate\Support\Collection;
 
 /**
- * Tipos de movimiento del historial de un repuesto.
+ * Tipos de movimiento del historial de un articulo (repuesto o accesorio).
  *
  * OJO: los `value` de este enum se escriben LITERALMENTE dentro del UNION de
- * RepuestoMovimiento::paraRepuesto() ("'Compra' as tipo"). Si cambias un value
- * aquí y no allí, el filtro deja de encontrar filas silenciosamente.
+ * MovimientoStock::paraArticulo() ("'Compra' as tipo"). Si cambias un value aqui
+ * y no alli, el filtro deja de encontrar filas silenciosamente. Y al reves: la
+ * tabla filtra con array_intersect(..., ::values()) como whitelist, asi que una
+ * rama nueva que no tenga su case aqui se filtra fuera sin aviso.
  */
-enum RepuestoMovimientoTipo: string
+enum MovimientoStockTipo: string
 {
     case Compra = 'Compra';
     case Venta = 'Venta';
     case Reparacion = 'Reparacion';
+    case Regalo = 'Regalo';
+    case Baja = 'Baja';
     case Transferencia = 'Transferencia';
 
     public function label(): string
@@ -24,23 +28,21 @@ enum RepuestoMovimientoTipo: string
             self::Compra => 'Compra',
             self::Venta => 'Venta',
             self::Reparacion => 'Reparación',
+            self::Regalo => 'Regalo',
+            self::Baja => 'Baja',
             self::Transferencia => 'Transferencia',
         };
     }
 
     /**
-     * Redundante con el tipo a propósito: espeja la columna `direccion` del UNION.
-     *
-     * Devuelve null para Transferencia, que no tiene una sola dirección: sale de
-     * una sucursal y entra en otra, y el UNION la parte en DOS filas opuestas.
-     * Antes era `$this === self::Compra ? 'Entrada' : 'Salida'`, que para una
-     * transferencia habría contestado 'Salida' -- media verdad, y la peor mitad.
+     * Espeja la columna `direccion` del UNION. Null para Transferencia, que el
+     * UNION parte en DOS filas opuestas (sale de una sucursal y entra en otra).
      */
     public function direccion(): ?string
     {
         return match ($this) {
             self::Compra => 'Entrada',
-            self::Venta, self::Reparacion => 'Salida',
+            self::Venta, self::Reparacion, self::Regalo, self::Baja => 'Salida',
             self::Transferencia => null,
         };
     }
@@ -51,6 +53,8 @@ enum RepuestoMovimientoTipo: string
             self::Compra => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
             self::Venta => 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
             self::Reparacion => 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+            self::Regalo => 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200',
+            self::Baja => 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
             self::Transferencia => 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
         };
     }

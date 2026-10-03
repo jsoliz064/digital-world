@@ -5,24 +5,32 @@ namespace App\Models;
 use App\Enums\ProductoEstado;
 use App\Enums\ReparacionTipo;
 use App\Traits\Auditable;
+use App\Traits\NormalizaCodigosTrait;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class Producto extends Model
 {
     use Auditable;
+    use NormalizaCodigosTrait;
 
     protected $table = 'productos';
     protected $guarded = ['id'];
+
+    protected $casts = [
+        'dado_de_baja_at' => 'datetime',
+    ];
 
     /**
      * Busca por IMEI ordenando por relevancia.
      *
      * Los clientes suelen escribir solo los últimos dígitos del IMEI, así que las
-     * coincidencias por sufijo van primero. Se sigue devolviendo cualquier
-     * coincidencia parcial, pero al final de la lista.
+     * coincidencias por sufijo van primero.
      *
      * Orden: exacto → termina en → empieza con → contiene.
+     *
+     * El SKU entra solo EXACTO: es lo que lee la pistola en un equipo con
+     * etiqueta interna, y un LIKE sobre el mezclaria codigos ajenos.
      */
     public function scopeBuscarPorImei(Builder $query, ?string $termino): Builder
     {
@@ -37,29 +45,52 @@ class Producto extends Model
         $patron = addcslashes($termino, '%_\\');
 
         return $query
-            ->where('imei', 'like', '%' . $patron . '%')
+            ->where(fn($q) => $q
+                ->where('imei', 'like', '%' . $patron . '%')
+                ->orWhere('sku', $termino))
             ->orderByRaw(
                 'CASE
-                    WHEN imei = ? THEN 0
+                    WHEN imei = ? OR sku = ? THEN 0
                     WHEN imei LIKE ? THEN 1
                     WHEN imei LIKE ? THEN 2
                     ELSE 3
                 END',
-                [$termino, '%' . $patron, $patron . '%']
+                [$termino, $termino, '%' . $patron, $patron . '%']
             )
             ->orderBy('imei');
     }
 
-    /** Equipos que se pueden vender. Ver ProductoEstado::disponibles(). */
+    /**
+     * Equipos que se pueden vender: en un estado disponible y NO dados de baja.
+     * Es el unico sitio de la pregunta "se puede vender?".
+     */
     public function scopeDisponibles(Builder $query): Builder
     {
-        return $query->whereIn('estado', ProductoEstado::disponibles());
+        return $query->whereIn('productos.estado', ProductoEstado::disponibles())
+            ->whereNull('productos.dado_de_baja_at');
+    }
+
+    /** Los que no estan dados de baja: lo que muestran los listados por defecto. */
+    public function scopeVigentes(Builder $query): Builder
+    {
+        return $query->whereNull('productos.dado_de_baja_at');
+    }
+
+    public function scopeDadosDeBaja(Builder $query): Builder
+    {
+        return $query->whereNotNull('productos.dado_de_baja_at');
     }
 
     /** La misma pregunta, sobre una fila ya cargada. */
     public function estaDisponible(): bool
     {
-        return in_array($this->estado, ProductoEstado::disponibles(), true);
+        return in_array($this->estado, ProductoEstado::disponibles(), true)
+            && !$this->estaDadoDeBaja();
+    }
+
+    public function estaDadoDeBaja(): bool
+    {
+        return $this->dado_de_baja_at !== null;
     }
 
     public function imagenes()
@@ -77,19 +108,36 @@ class Producto extends Model
         return $this->belongsTo(ProductoModelo::class, 'producto_modelo_id');
     }
 
-    public function compra()
+    /** La linea de compra que trajo el equipo (no hay compra_id: es esta). */
+    public function compraDetalle()
     {
-        return $this->belongsTo(Compra::class, 'compra_id');
+        return $this->hasOne(CompraDetalle::class, 'producto_id');
     }
 
-    public function ventaProducto()
+    public function compra()
     {
-        return $this->hasOne(VentaProducto::class, 'producto_id');
+        return $this->hasOneThrough(Compra::class, CompraDetalle::class, 'producto_id', 'id', 'id', 'compra_id');
+    }
+
+    /** La linea de venta, si esta vendido (un telefono, una sola venta). */
+    public function ventaDetalle()
+    {
+        return $this->hasOne(VentaDetalle::class, 'producto_id');
+    }
+
+    public function regalos()
+    {
+        return $this->hasMany(ProductoRegalo::class, 'producto_id');
     }
 
     public function sucursal()
     {
         return $this->belongsTo(Sucursal::class, 'sucursal_id');
+    }
+
+    public function bajaUser()
+    {
+        return $this->belongsTo(User::class, 'baja_user_id');
     }
 
     public function ultimaReparacion()
@@ -102,24 +150,25 @@ class Producto extends Model
         return ProductoReparacion::where('producto_id', $this->id)->where('estado', 'Pendiente')->orderBy('id', 'desc')->first();
     }
 
+    /**
+     * costo_total = costo_unidad + costo_regalos + costo_reparacion, en Bs.
+     * Las dos ultimas son cacheados que solo escribe este metodo.
+     */
     public function recalcularCosto()
     {
-        $costo_total = $this->costo_unidad + $this->costo_envio;
-
         // El trabajo externo lo paga el cliente: no es costo de inventario.
-        // Sumarlo reescribiria el costo de un telefono ya vendido y, como el
-        // producto conserva su compra_id, Compra::recalculate() lo arrastraria
-        // al total del lote, que los reportes leen como "Inversion".
-        //
         // La exclusion va aqui y no en quien llama: si solo se omitiera la
         // llamada desde el modal, la siguiente edicion del tecnico desde
         // ReparacionEditModal volveria a sumarlo.
-        $costo_reparacion = $this->reparaciones()
+        $costoReparacion = $this->reparaciones()
             ->where('tipo', '!=', ReparacionTipo::Externo->value)
             ->sum('costo_total');
 
-        $this->costo_reparacion = $costo_reparacion;
-        $this->costo_total = $costo_total + $costo_reparacion;
+        $costoRegalos = $this->regalos()->sum('subtotal_costo');
+
+        $this->costo_reparacion = round((float) $costoReparacion, 2);
+        $this->costo_regalos = round((float) $costoRegalos, 2);
+        $this->costo_total = round((float) $this->costo_unidad + $this->costo_regalos + $this->costo_reparacion, 2);
         $this->save();
     }
 }

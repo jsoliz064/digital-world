@@ -15,9 +15,7 @@ return new class extends Migration
             $table->foreignId('tecnico_id')->nullable()->constrained('tecnicos')->nullOnDelete();
             $table->decimal('costo', 10, 2)->default(0);
             $table->decimal('costo_repuestos', 10, 2)->default(0);
-            $table->decimal('tipo_cambio', 10, 2)->default(0);
             $table->decimal('costo_total', 10, 2)->default(0);
-            $table->decimal('costo_total_bs', 10, 2)->default(0);
             $table->decimal('cobro_cliente', 10, 2)->default(0);
             $table->text('repuestos_tecnico')->nullable();
             $table->text('repuestos_propios')->nullable();

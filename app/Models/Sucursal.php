@@ -33,10 +33,10 @@ class Sucursal extends Model
         return $this->hasMany(Producto::class, 'sucursal_id');
     }
 
-    /** El stock de repuestos que guarda esta sucursal. */
-    public function stocksRepuestos()
+    /** El stock de repuestos y accesorios que guarda esta sucursal. */
+    public function stocks()
     {
-        return $this->hasMany(RepuestoSucursal::class, 'sucursal_id');
+        return $this->hasMany(StockSucursal::class, 'sucursal_id');
     }
 
     /** El id del Almacen, o null si nadie lo creo todavia. */
@@ -86,10 +86,11 @@ class Sucursal extends Model
 
         return $this->productos()->count()
             + DB::table('ventas')->where('sucursal_id', $id)->count()
-            + DB::table('ventas_repuestos')->where('sucursal_id', $id)->count()
-            + DB::table('compras_repuestos')->where('sucursal_id', $id)->count()
-            + DB::table('repuestos_sucursales')->where('sucursal_id', $id)->count()
-            + DB::table('repuestos_transferencias')
+            + DB::table('compras')->where('sucursal_id', $id)->count()
+            + DB::table('stock_sucursales')->where('sucursal_id', $id)->count()
+            + DB::table('stock_bajas')->where('sucursal_id', $id)->count()
+            + DB::table('productos_regalos')->where('sucursal_id', $id)->count()
+            + DB::table('stock_transferencias')
                 ->where(fn($q) => $q->where('sucursal_origen_id', $id)->orWhere('sucursal_destino_id', $id))
                 ->count();
     }

@@ -23,4 +23,10 @@ class ProductoModelo extends Model
     {
         return $this->hasMany(ProductoModeloAlmacenamiento::class, 'producto_modelo_id');
     }
+
+    /** Los accesorios marcados como compatibles con este modelo. */
+    public function accesoriosCompatibles()
+    {
+        return $this->belongsToMany(Accesorio::class, 'accesorios_modelos', 'producto_modelo_id', 'accesorio_id');
+    }
 }

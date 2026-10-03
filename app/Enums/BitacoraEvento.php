@@ -28,6 +28,11 @@ enum BitacoraEvento: string
     case Externo = 'externo';
     case Cobro = 'cobro';
     case CobroAnulado = 'cobro-anulado';
+    case Baja = 'baja';
+    case BajaRevertida = 'baja-revertida';
+    case Regalo = 'regalo';
+    case RegaloQuitado = 'regalo-quitado';
+    case StockBaja = 'stock-baja';
 
     public function label(): string
     {
@@ -40,6 +45,11 @@ enum BitacoraEvento: string
             self::Externo => 'Trabajo externo',
             self::Cobro => 'Repuesto cobrado',
             self::CobroAnulado => 'Cobro anulado',
+            self::Baja => 'Dado de baja',
+            self::BajaRevertida => 'Baja revertida',
+            self::Regalo => 'Regalo agregado',
+            self::RegaloQuitado => 'Regalo quitado',
+            self::StockBaja => 'Baja de stock',
         };
     }
 
@@ -55,6 +65,11 @@ enum BitacoraEvento: string
             self::Externo => 'bg-orange-100 text-orange-800',
             self::Cobro => 'bg-green-100 text-green-800',
             self::CobroAnulado => 'bg-rose-100 text-rose-800',
+            self::Baja => 'bg-red-100 text-red-800',
+            self::BajaRevertida => 'bg-lime-100 text-lime-800',
+            self::Regalo => 'bg-pink-100 text-pink-800',
+            self::RegaloQuitado => 'bg-fuchsia-100 text-fuchsia-800',
+            self::StockBaja => 'bg-red-100 text-red-800',
         };
     }
 

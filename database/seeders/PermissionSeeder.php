@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class PermissionSeeder extends Seeder
 {
@@ -20,14 +21,12 @@ class PermissionSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'repuesto-categoria.delete']);
 
         //PRODUCTOS
-        // Sueltos a proposito: se asignan a mano desde Editar Rol, igual que
-        // repuesto.tipo-cambio-masivo.
+        // Sueltos a proposito: se asignan a mano desde Editar Rol.
         Permission::firstOrCreate(['name' => 'producto.estado-masivo']);
         Permission::firstOrCreate(['name' => 'producto.trabajo-externo']);
 
         //REPUESTOS
         Permission::firstOrCreate(['name' => 'repuesto.historial']);
-        Permission::firstOrCreate(['name' => 'repuesto.tipo-cambio-masivo']);
         Permission::firstOrCreate(['name' => 'repuesto.transferir']);
 
         //ACCESORIOS
@@ -35,6 +34,15 @@ class PermissionSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'accesorio.create']);
         Permission::firstOrCreate(['name' => 'accesorio.edit']);
         Permission::firstOrCreate(['name' => 'accesorio.delete']);
+        Permission::firstOrCreate(['name' => 'accesorio.historial']);
+        Permission::firstOrCreate(['name' => 'accesorio.transferir']);
+        Permission::firstOrCreate(['name' => 'accesorio.baja']);
+
+        //ACCESORIOS CATEGORIAS
+        Permission::firstOrCreate(['name' => 'accesorio-categoria.index']);
+        Permission::firstOrCreate(['name' => 'accesorio-categoria.create']);
+        Permission::firstOrCreate(['name' => 'accesorio-categoria.edit']);
+        Permission::firstOrCreate(['name' => 'accesorio-categoria.delete']);
 
         //CLIENTES
         // El modulo nace entero aqui: hasta ahora el cliente era un texto suelto
@@ -49,5 +57,11 @@ class PermissionSeeder extends Seeder
         // Ver todo lo que hizo un usuario, leido de la bitacora. Suelto, como el
         // resto: se asigna a mano desde Editar Rol.
         Permission::firstOrCreate(['name' => 'user.historial']);
+
+        // El Administrador recibe TODOS los permisos, incluidos los sueltos de
+        // arriba: en una base recien creada no habria nadie con rol.edit que
+        // pudiera asignarselos, y el primer usuario no veria accesorios ni
+        // clientes. Los demas roles se arman a mano desde Editar Rol.
+        Role::findByName('Administrador')->givePermissionTo(Permission::all());
     }
 }

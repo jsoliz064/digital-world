@@ -77,46 +77,39 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'producto.garantia'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'producto.cambiar-sucursal'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'producto.reporte'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'producto.baja'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'producto.regalos'])->syncRoles([$role1, $role2]);
 
         //REPUESTOS
         Permission::firstOrCreate(['name' => 'repuesto.index'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'repuesto.create'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'repuesto.edit'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'repuesto.delete'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'repuesto.baja'])->syncRoles([$role1]);
 
-        //COMPRAS PRODUCTOS
+        //COMPRAS (una sola: equipos, repuestos y accesorios)
         Permission::firstOrCreate(['name' => 'compra.index'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'compra.productos'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'compra.detalle'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.create'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.edit'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.delete'])->syncRoles([$role1]);
 
-        //COMPRAS REPUESTOS
-        Permission::firstOrCreate(['name' => 'compra.repuesto.index'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'compra.repuesto.create'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'compra.repuesto.edit'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'compra.repuesto.delete'])->syncRoles([$role1]);
-        //VENTAS
+        //VENTAS (una sola: equipos, repuestos y accesorios)
         Permission::firstOrCreate(['name' => 'venta.reporte'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'venta.index'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'venta.create'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'venta.edit'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'venta.delete'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'venta.detalle'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'venta.detalle.delete'])->syncRoles([$role1, $role2]);
 
-        Permission::firstOrCreate(['name' => 'venta.repuesto.reporte'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'venta.repuesto.index'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'venta.repuesto.create'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'venta.repuesto.edit'])->syncRoles([$role1]);
-        Permission::firstOrCreate(['name' => 'venta.repuesto.delete'])->syncRoles([$role1]);
-
-
+        // Estados que el usuario puede ELEGIR en el selector (filtra por estos).
+        // Vendido y Credito solo los escribe una venta: no tienen permiso de
+        // seleccion (ProductoEstado::soloPorDocumento()).
         Permission::firstOrCreate(['name' => 'producto.estado.inventario'])->syncRoles([$role1, $role2, $role3]);
-        // Oferta es Inventario con un cartel: mismos roles que el.
-        Permission::firstOrCreate(['name' => 'producto.estado.oferta'])->syncRoles([$role1, $role2, $role3]);
-        Permission::firstOrCreate(['name' => 'producto.estado.vendido'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'producto.estado.reparacion'])->syncRoles([$role1, $role2, $role3]);
         Permission::firstOrCreate(['name' => 'producto.estado.fuera'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'producto.estado.roto'])->syncRoles([$role1, $role2]);
-        Permission::firstOrCreate(['name' => 'producto.estado.transito'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'producto.estado.reserva'])->syncRoles([$role1, $role2]);
     }
 }

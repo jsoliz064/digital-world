@@ -84,9 +84,10 @@ class User extends Authenticatable
     public function cantidadMovimientos(): int
     {
         return DB::table('ventas')->where('user_id', $this->id)->count()
-            + DB::table('ventas_repuestos')->where('user_id', $this->id)->count()
-            + DB::table('compras_repuestos')->where('user_id', $this->id)->count()
-            + DB::table('repuestos_transferencias')->where('user_id', $this->id)->count();
+            + DB::table('compras')->where('user_id', $this->id)->count()
+            + DB::table('stock_transferencias')->where('user_id', $this->id)->count()
+            + DB::table('stock_bajas')->where('user_id', $this->id)->count()
+            + DB::table('productos_regalos')->where('user_id', $this->id)->count();
     }
 
     /**

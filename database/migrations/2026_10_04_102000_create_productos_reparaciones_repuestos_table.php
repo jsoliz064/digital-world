@@ -13,10 +13,10 @@ return new class extends Migration
             $table->decimal('costo', 10, 2)->default(0);
             $table->integer('cantidad');
             $table->decimal('subtotal_costo', 10, 2)->default(0);
-            $table->decimal('tipo_cambio', 10, 2)->default(9);
-            $table->decimal('subtotal_costo_bs', 10, 2)->default(0);
             $table->foreignId('producto_reparacion_id')->constrained('productos_reparaciones')->cascadeOnDelete();
-            $table->foreignId('repuesto_id')->constrained('repuestos')->cascadeOnDelete();
+            // RESTRICT: un repuesto montado en una reparacion tiene historia y no
+            // se borra (antes cascade se llevaba la pieza en silencio).
+            $table->foreignId('repuesto_id')->constrained('repuestos')->restrictOnDelete();
             // Sucursal de la que salio la pieza, congelada en la linea: al
             // quitarla despues el stock vuelve a la sucursal original.
             $table->unsignedBigInteger('sucursal_id')->nullable();
