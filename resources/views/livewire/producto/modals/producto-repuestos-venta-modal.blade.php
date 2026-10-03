@@ -82,7 +82,7 @@
                             <span class="font-semibold">{{ count($seleccionados) }}</span> seleccionado(s)
                         </span>
                         <span class="text-gray-800 dark:text-gray-200">
-                            Total a cobrar: <span class="font-semibold">$ {{ number_format($totalSeleccionado, 2) }}</span>
+                            Total a cobrar: <span class="font-semibold">Bs {{ number_format($totalSeleccionado, 2) }}</span>
                         </span>
                     </div>
                 @endif

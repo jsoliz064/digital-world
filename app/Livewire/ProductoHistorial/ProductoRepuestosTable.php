@@ -4,7 +4,7 @@ namespace App\Livewire\ProductoHistorial;
 
 use App\Models\Producto;
 use App\Models\ProductoReparacionRepuesto;
-use App\Models\VentaRepuestoDetalle;
+use App\Models\VentaDetalle;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
@@ -21,7 +21,7 @@ class ProductoRepuestosTable extends DataTableComponent
 
     public function mount($producto_id)
     {
-        $this->producto = Producto::find($producto_id);
+        $this->producto = Producto::findOrFail($producto_id);
     }
 
     public function configure(): void
@@ -67,16 +67,16 @@ class ProductoRepuestosTable extends DataTableComponent
     public function builder(): Builder
     {
         // Subconsulta, no relacion: una columna en el SELECT principal y cero
-        // N+1 al pintar el distintivo de "ya cobrado".
+        // N+1 al pintar el distintivo de "ya cobrado". El cobro es una linea
+        // mas de la venta del telefono (ventas_detalles), no una venta aparte.
         return $this->scopedQuery()
             ->addSelect([
-                'cobrado_en_venta' => VentaRepuestoDetalle::query()
-                    ->join('ventas_repuestos', 'ventas_repuestos.id', '=', 'ventas_repuestos_detalles.venta_repuesto_id')
+                'cobrado_en_venta' => VentaDetalle::query()
                     ->whereColumn(
-                        'ventas_repuestos_detalles.producto_reparacion_repuesto_id',
+                        'ventas_detalles.producto_reparacion_repuesto_id',
                         'productos_reparaciones_repuestos.id'
                     )
-                    ->select('ventas_repuestos.venta_id')
+                    ->select('ventas_detalles.venta_id')
                     ->limit(1),
             ]);
     }
@@ -90,7 +90,6 @@ class ProductoRepuestosTable extends DataTableComponent
         return $this->totales ??= $this->scopedQuery()
             ->selectRaw('COALESCE(SUM(cantidad), 0) as total_cantidad')
             ->selectRaw('COALESCE(SUM(subtotal_costo), 0) as total_costo')
-            ->selectRaw('COALESCE(SUM(subtotal_costo_bs), 0) as total_costo_bs')
             ->first();
     }
 
@@ -132,7 +131,7 @@ class ProductoRepuestosTable extends DataTableComponent
                 ->html()
                 ->collapseOnMobile(),
             // El repuesto sigue costando lo mismo al equipo; esto solo dice si
-            // ademas se le cobro al cliente como venta aparte.
+            // ademas se le cobro al cliente en la venta del telefono.
             Column::make('Cobrado')
                 ->label(function ($row) {
                     if (!$row->cobrado_en_venta) {
@@ -146,19 +145,14 @@ class ProductoRepuestosTable extends DataTableComponent
             Column::make('Cantidad', 'cantidad')
                 ->sortable()
                 ->footer(fn($rows) => (string) $this->getTotales()->total_cantidad),
-            Column::make('Costo Unit.', 'costo')
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format((float) $value, 2))
-                ->collapseOnTablet(),
-            Column::make('Subtotal', 'subtotal_costo')
-                ->sortable()
-                ->format(fn($value) => '$ ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => '$ ' . number_format((float) $this->getTotales()->total_costo, 2)),
-            Column::make('Subtotal Bs.', 'subtotal_costo_bs')
+            Column::make('Costo Unit. (Bs)', 'costo')
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
-                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total_costo_bs, 2))
                 ->collapseOnTablet(),
+            Column::make('Subtotal (Bs)', 'subtotal_costo')
+                ->sortable()
+                ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total_costo, 2)),
         ];
     }
 }
