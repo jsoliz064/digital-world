@@ -99,6 +99,44 @@
         </div>
     </div>
 
+    {{-- Pagado al recibir: lo que falte queda en cuentas por pagar. --}}
+    <div class="mt-4 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-gray-800 dark:text-gray-100">{{ $this->esEdicion() ? 'Pagos al proveedor' : 'Pagado al recibir' }}</h3>
+            @if (!$this->esEdicion())
+                <button type="button" wire:click="agregarPago" class="text-sm text-brand-600 hover:underline">
+                    <i class="fa-solid fa-plus"></i> Agregar método
+                </button>
+            @endif
+        </div>
+        @if ($this->esEdicion())
+            <ul class="mt-2 divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+                @forelse ($pagosExistentes as $pago)
+                    <li class="py-1 flex justify-between" wire:key="pago-existente-{{ $loop->index }}">
+                        <span class="text-gray-600 dark:text-gray-300">{{ $pago['fecha'] }} · {{ $pago['metodo'] }}</span>
+                        <span>Bs {{ number_format($pago['monto'], 2) }}</span>
+                    </li>
+                @empty
+                    <li class="py-1 text-gray-500">Sin pagos registrados.</li>
+                @endforelse
+            </ul>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Para pagar o anular un pago, usa el detalle de la compra.</p>
+        @else
+            @include('livewire.partials.filas-pago')
+            <x-input-error for="pagos" class="mt-1" />
+            @php($saldo = $this->saldoPrevisto())
+            <p class="mt-3 text-sm">
+                Pagado: <strong>Bs {{ number_format($this->sumaFilas(), 2) }}</strong>
+                @if ($saldo > 0)
+                    · <span class="font-semibold text-amber-700 dark:text-amber-300">Queda debiendo Bs {{ number_format($saldo, 2) }}</span>
+                @elseif ($saldo < 0)
+                    · <span class="font-semibold text-red-600">Se paga Bs {{ number_format(-$saldo, 2) }} de más</span>
+                @endif
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Los equipos se cargan después, en el detalle: lo que sumen queda por pagar hasta registrar el pago.</p>
+        @endif
+    </div>
+
     <div class="mt-4 flex justify-end gap-2">
         <a href="{{ $this->esEdicion() ? route('compras.detalle', $compraId) : route('compras') }}">
             <x-secondary-button>Cancelar</x-secondary-button>

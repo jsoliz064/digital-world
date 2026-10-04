@@ -5,10 +5,12 @@ namespace App\Livewire\Compra;
 use App\Enums\ArticuloTipo;
 use App\Enums\LineaTipo;
 use App\Models\Compra;
+use App\Models\MetodoPago;
 use App\Models\Proveedor;
 use App\Models\Sucursal;
 use App\Services\CompraService;
 use App\Traits\CarritoBuscadorTrait;
+use App\Traits\FilasDePagoFormTrait;
 use App\Traits\GuardadoIdempotenteTrait;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
@@ -23,11 +25,16 @@ use Livewire\Component;
  * el detalle de la compra (llevan IMEI, fotos y camara: no caben en un carrito).
  *
  * La sucursal se elige al crear y no cambia: es a donde entra el stock.
+ *
+ * Al crear se registra lo PAGADO AL RECIBIR (filas de pago, Bs o USD). Lo que
+ * falte, y lo que sumen los equipos que se carguen despues, queda en cuentas
+ * por pagar (PagoProveedorService).
  */
 class CompraForm extends Component
 {
     use CarritoBuscadorTrait;
     use GuardadoIdempotenteTrait;
+    use FilasDePagoFormTrait;
 
     /** Null al crear. #[Locked]: decide que compra se reescribe. */
     #[Locked]
@@ -38,12 +45,20 @@ class CompraForm extends Component
     /** [['tipo', 'id', 'nombre', 'sku', 'cantidad', 'costo'], ...] */
     public array $lineas = [];
 
+    /** Pagos ya registrados (edicion, solo lectura): [['fecha','metodo','monto'], ...]. */
+    public array $pagosExistentes = [];
+
     public function mount(?int $compraId = null): void
     {
         if ($compraId) {
             abort_unless(Auth::user()?->can('compra.edit'), 403);
 
-            $compra = Compra::with(['detalles.repuesto', 'detalles.accesorio'])->findOrFail($compraId);
+            $compra = Compra::with(['detalles.repuesto', 'detalles.accesorio', 'pagos.metodo'])->findOrFail($compraId);
+            $this->pagosExistentes = $compra->pagos->sortBy('id')->map(fn($p) => [
+                'fecha' => $p->fecha->format('d/m/Y H:i'),
+                'metodo' => $p->descripcion(),
+                'monto' => (float) $p->monto,
+            ])->values()->all();
             $this->compraId = $compra->id;
             $this->compra = [
                 'proveedor_id' => $compra->proveedor_id,
@@ -71,6 +86,13 @@ class CompraForm extends Component
         // Una clave por apertura: reintentar no ingresa el stock dos veces.
         $this->nuevaClaveIdempotencia();
         $this->compra = ['proveedor_id' => null, 'fecha' => now()->toDateString(), 'sucursal_id' => null];
+        $this->pagos = [$this->filaPago(MetodoPago::activos()->value('id'))];
+    }
+
+    /** Lo que falta pagar de lo cargado aqui (los equipos se suman despues). */
+    public function saldoPrevisto(): float
+    {
+        return round($this->total() - $this->sumaFilas(), 2);
     }
 
     public function esEdicion(): bool
@@ -193,6 +215,10 @@ class CompraForm extends Component
 
     public function guardar()
     {
+        if (!$this->esEdicion()) {
+            $this->seguirMonto($this->total());
+        }
+
         $this->validate();
 
         $articulos = array_map(fn($l) => [
@@ -225,7 +251,7 @@ class CompraForm extends Component
         }
 
         try {
-            $compra = DB::transaction(fn() => $servicio->crear($this->compra, $articulos, Auth::user(), $this->claveIdempotencia));
+            $compra = DB::transaction(fn() => $servicio->crear($this->compra, $articulos, Auth::user(), $this->claveIdempotencia, $this->pagos));
         } catch (QueryException $e) {
             if ($this->esClaveDuplicada($e) && $ya = $this->yaGuardado(Compra::class)) {
                 $this->avisarYaGuardado($ya, 'compra');
@@ -243,7 +269,12 @@ class CompraForm extends Component
 
     public function render()
     {
+        if (!$this->esEdicion()) {
+            $this->seguirMonto($this->total());
+        }
+
         return view('livewire.compra.compra-form', [
+            'metodos' => $this->esEdicion() ? collect() : MetodoPago::activos()->get(),
             'proveedores' => Proveedor::orderBy('nombre')->get(['id', 'nombre']),
             'sucursales' => $this->esEdicion()
                 ? Sucursal::paraSelect($this->sucursalDelDocumento())

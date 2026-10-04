@@ -20,6 +20,7 @@ use App\Services\RepuestosDeReparacionService;
 use App\Services\VentaService;
 use App\Traits\CarritoBuscadorTrait;
 use App\Traits\ClienteBuscadorTrait;
+use App\Traits\FilasDePagoFormTrait;
 use App\Traits\GuardadoIdempotenteTrait;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
@@ -54,6 +55,7 @@ class VentaForm extends Component
     use CarritoBuscadorTrait;
     use ClienteBuscadorTrait;
     use GuardadoIdempotenteTrait;
+    use FilasDePagoFormTrait;
 
     /** Null al crear. #[Locked]: decide que venta se reescribe. */
     #[Locked]
@@ -77,12 +79,6 @@ class VentaForm extends Component
     /** Cobros de taller ya registrados en la venta (edicion, solo lectura). */
     public array $cobrosExistentes = [];
 
-    /**
-     * Lo que se cobra al vender: [['metodo_pago_id', 'moneda', 'monto' (Bs),
-     * 'monto_moneda' (USD), 'tipo_cambio'], ...]. Solo al crear.
-     */
-    public array $pagos = [];
-
     /** La reserva que se concreta (?reserva=). #[Locked]: decide que equipo y que seña. */
     #[Locked]
     public ?int $reservaId = null;
@@ -94,12 +90,6 @@ class VentaForm extends Component
     /** El equipo recibido en permuta (vacio si no hay). Lo valida PermutaService. */
     public array $permuta = [];
     public bool $conPermuta = false;
-
-    /**
-     * Mientras nadie toque los montos, el unico pago sigue al total: la venta
-     * de contado en efectivo no pide escribir nada. Al tocarlo, se respeta.
-     */
-    public bool $montoTocado = false;
 
     /** Pagos ya registrados (edicion, solo lectura): [['fecha','metodo','monto'], ...]. */
     public array $pagosExistentes = [];
@@ -458,33 +448,6 @@ class VentaForm extends Component
 
     // ------------------------------------------------------- cobro
 
-    private function filaPago($metodoId = null, float $monto = 0): array
-    {
-        return [
-            'metodo_pago_id' => $metodoId,
-            'moneda' => Moneda::BOB->value,
-            'monto' => $monto,
-            'monto_moneda' => '',
-            'tipo_cambio' => PagoService::ultimoTipoCambio(),
-        ];
-    }
-
-    public function agregarPago(): void
-    {
-        $this->montoTocado = true;
-        $this->pagos[] = $this->filaPago(null, max(0, $this->saldoPrevisto()));
-    }
-
-    /** El equivalente en Bs de una fila (en USD, dolares x tasa). */
-    public function montoBsDe(array $pago): float
-    {
-        if (($pago['moneda'] ?? 'BOB') === Moneda::USD->value) {
-            return round((float) ($pago['monto_moneda'] ?: 0) * (float) ($pago['tipo_cambio'] ?: 0), 2);
-        }
-
-        return round((float) ($pago['monto'] ?: 0), 2);
-    }
-
     // ------------------------------------------------------- permuta
 
     public function abrirPermuta(): void
@@ -509,20 +472,6 @@ class VentaForm extends Component
         return $this->conPermuta ? round((float) ($this->permuta['valor'] ?? 0 ?: 0), 2) : 0.0;
     }
 
-    public function quitarPago(int $index): void
-    {
-        unset($this->pagos[$index]);
-        $this->pagos = array_values($this->pagos);
-        $this->montoTocado = true;
-    }
-
-    public function updatedPagos($valor, $clave): void
-    {
-        if (str_ends_with((string) $clave, '.monto') || str_ends_with((string) $clave, '.monto_moneda') || str_ends_with((string) $clave, '.moneda')) {
-            $this->montoTocado = true;
-        }
-    }
-
     /** La seña y la permuta: lo cobrado que no es una fila de pago. */
     public function cobradoFijo(): float
     {
@@ -535,7 +484,7 @@ class VentaForm extends Component
             return round(array_sum(array_column($this->pagosExistentes, 'monto')), 2);
         }
 
-        return round(array_sum(array_map(fn($p) => $this->montoBsDe($p), $this->pagos)) + $this->cobradoFijo(), 2);
+        return round($this->sumaFilas() + $this->cobradoFijo(), 2);
     }
 
     public function saldoPrevisto(): float
@@ -546,8 +495,8 @@ class VentaForm extends Component
     /** El unico pago (en Bs) sigue a lo que falta mientras nadie lo toque. */
     private function seguirTotal(): void
     {
-        if (!$this->esEdicion() && !$this->montoTocado && count($this->pagos) === 1 && ($this->pagos[0]['moneda'] ?? 'BOB') === Moneda::BOB->value) {
-            $this->pagos[0]['monto'] = max(0, round($this->totales()['total'] - $this->cobradoFijo(), 2));
+        if (!$this->esEdicion()) {
+            $this->seguirMonto($this->totales()['total'] - $this->cobradoFijo());
         }
     }
 
