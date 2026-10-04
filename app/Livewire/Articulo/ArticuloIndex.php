@@ -101,7 +101,7 @@ class ArticuloIndex extends Component
     public function calculateTotals()
     {
         $this->totalArticulos = $this->articulosFiltrados()->count();
-        // Mira el TOTAL y no cada sucursal: el criterio que ya tenia el sistema.
+        // Por agotarse en alguna sucursal (minimo por articulo y sucursal).
         $this->totalBajoStock = $this->articulosFiltrados()->bajoStock()->count();
         $this->sucursalesResumen = $this->resumenPorSucursal();
     }

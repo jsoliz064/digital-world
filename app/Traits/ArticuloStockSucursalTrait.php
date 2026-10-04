@@ -21,6 +21,9 @@ trait ArticuloStockSucursalTrait
     /** [sucursal_id => cantidad]. Una fila por sucursal cargada. */
     public array $stockSucursales = [];
 
+    /** [sucursal_id => minimo], mismas claves que $stockSucursales. 0 = sin minimo. */
+    public array $minimosSucursales = [];
+
     /** La sucursal que el usuario esta por agregar. */
     public $sucursalNueva = '';
 
@@ -61,6 +64,7 @@ trait ArticuloStockSucursalTrait
 
         if (!array_key_exists($id, $this->stockSucursales)) {
             $this->stockSucursales[$id] = 0;
+            $this->minimosSucursales[$id] = 0;
         }
 
         $this->sucursalNueva = '';
@@ -68,13 +72,16 @@ trait ArticuloStockSucursalTrait
 
     public function quitarSucursalStock($sucursalId): void
     {
-        unset($this->stockSucursales[(int) $sucursalId]);
+        unset($this->stockSucursales[(int) $sucursalId], $this->minimosSucursales[(int) $sucursalId]);
     }
 
     /** Carga el reparto actual de un articulo ya guardado. */
     protected function cargarStockSucursales(int $articuloId): void
     {
-        $this->stockSucursales = app(StockService::class)->porSucursal($this->articuloTipo(), $articuloId);
+        $stock = app(StockService::class);
+        $this->stockSucursales = $stock->porSucursal($this->articuloTipo(), $articuloId);
+        $minimos = $stock->minimosPorSucursal($this->articuloTipo(), $articuloId);
+        $this->minimosSucursales = collect($this->stockSucursales)->map(fn($c, $id) => $minimos[$id] ?? 0)->all();
     }
 
     /**
@@ -110,7 +117,21 @@ trait ArticuloStockSucursalTrait
 
         $stock->recalcularTotales();
 
-        $this->registrarAjusteDeStock($articuloId, $movidas, esAlta: $actual === []);
+        // El minimo, por la misma puerta. Una sucursal quitada vuelve a 0.
+        $minimosAntes = $stock->minimosPorSucursal($tipo, $articuloId);
+        $minimosMovidos = [];
+
+        foreach ($ids as $sucursalId) {
+            $antes = $minimosAntes[$sucursalId] ?? 0;
+            $ahora = (int) ($this->minimosSucursales[$sucursalId] ?? 0);
+
+            if ($antes !== $ahora) {
+                $stock->fijarMinimo($tipo, $articuloId, (int) $sucursalId, $ahora);
+                $minimosMovidos[(int) $sucursalId] = [$antes, $ahora];
+            }
+        }
+
+        $this->registrarAjusteDeStock($articuloId, $movidas, esAlta: $actual === [], minimos: $minimosMovidos);
     }
 
     /**
@@ -119,31 +140,40 @@ trait ArticuloStockSucursalTrait
      * Una fila por guardado, con las sucursales que cambiaron como pares
      * [antes, despues] por nombre (la forma de un diff del observer).
      */
-    protected function registrarAjusteDeStock(int $articuloId, array $movidas, bool $esAlta): void
+    protected function registrarAjusteDeStock(int $articuloId, array $movidas, bool $esAlta, array $minimos = []): void
     {
-        if ($movidas === []) {
+        if ($movidas === [] && $minimos === []) {
             return;
         }
 
         $tipo = $this->articuloTipo();
-        $nombres = Sucursal::whereIn('id', array_keys($movidas))->pluck('nombre', 'id');
+        $nombres = Sucursal::whereIn('id', array_keys($movidas + $minimos))->pluck('nombre', 'id');
 
         $cambios = [];
         foreach ($movidas as $sucursalId => $par) {
             $cambios[$nombres[$sucursalId] ?? "Sucursal #{$sucursalId}"] = $par;
         }
+        foreach ($minimos as $sucursalId => $par) {
+            $cambios['Mínimo ' . ($nombres[$sucursalId] ?? "Sucursal #{$sucursalId}")] = $par;
+        }
 
         $neto = array_sum(array_map(fn($par) => $par[1] - $par[0], $movidas));
+
+        $descripcion = match (true) {
+            $movidas === [] => 'Stock mínimo ajustado desde la ficha',
+            $esAlta => 'Stock inicial cargado desde la ficha',
+            default => 'Stock ajustado a mano desde la ficha (neto ' . ($neto >= 0 ? '+' : '') . $neto . ')',
+        };
+
+        $sucursales = array_keys($movidas + $minimos);
 
         Bitacora::registrar(
             ($tipo->modelo())::findOrFail($articuloId),
             'stock',
-            $esAlta
-                ? 'Stock inicial cargado desde la ficha'
-                : 'Stock ajustado a mano desde la ficha (neto ' . ($neto >= 0 ? '+' : '') . $neto . ')',
+            $descripcion,
             // El enlace a la sucursal solo cuando es una: con varias, el detalle
             // esta en `cambios`.
-            count($movidas) === 1 ? ['sucursal_id' => array_key_first($movidas)] : [],
+            count($sucursales) === 1 ? ['sucursal_id' => $sucursales[0]] : [],
             $cambios,
         );
     }
@@ -154,6 +184,8 @@ trait ArticuloStockSucursalTrait
         return [
             'stockSucursales' => 'array',
             'stockSucursales.*' => 'required|integer|min:0',
+            'minimosSucursales' => 'array',
+            'minimosSucursales.*' => 'nullable|integer|min:0',
         ];
     }
 }

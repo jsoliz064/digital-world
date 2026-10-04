@@ -13,7 +13,7 @@
         </div>
 
         <div class="bg-red-100 dark:bg-red-800 p-4 sm:p-6 rounded-2xl shadow-lg border border-red-200 dark:border-red-700">
-            <h3 class="text-xs sm:text-sm font-medium text-red-700 dark:text-red-300">Con bajo stock</h3>
+            <h3 class="text-xs sm:text-sm font-medium text-red-700 dark:text-red-300">Por agotarse</h3>
             <p class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-red-900 dark:text-red-100">
                 {{ $totalBajoStock }}
             </p>
@@ -83,7 +83,7 @@
                 <select wire:model.live="selectedMinStock" id="stock"
                     class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                     <option value="0">Todos</option>
-                    <option value="1">Bajo stock</option>
+                    <option value="1">Por agotarse</option>
                 </select>
             </div>
         </div>

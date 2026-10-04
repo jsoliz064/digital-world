@@ -206,6 +206,38 @@ class StockService
     }
 
     /** El stock de un articulo en todas sus sucursales: [sucursal_id => cantidad]. */
+    /**
+     * Fija el stock minimo de un articulo en una sucursal. Crea la fila (en 0
+     * unidades) si no existia: el minimo puede ir antes que la mercaderia.
+     * No toca `cantidad` ni el total cacheado.
+     */
+    public function fijarMinimo(ArticuloTipo $tipo, int $id, int $sucursalId, int $minimo): void
+    {
+        if ($minimo < 0) {
+            throw new InvalidArgumentException("El minimo no puede ser negativo: {$minimo}.");
+        }
+
+        $col = $tipo->columna();
+
+        DB::statement(
+            "INSERT INTO stock_sucursales
+                 ({$col}, sucursal_id, cantidad, minimo, created_at, updated_at)
+             VALUES (?, ?, 0, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE minimo = ?, updated_at = ?",
+            [$id, $sucursalId, $minimo, now(), now(), $minimo, now()]
+        );
+    }
+
+    /** [sucursal_id => minimo] de un articulo. */
+    public function minimosPorSucursal(ArticuloTipo $tipo, int $id): array
+    {
+        return DB::table('stock_sucursales')
+            ->where($tipo->columna(), $id)
+            ->pluck('minimo', 'sucursal_id')
+            ->map(fn($m) => (int) $m)
+            ->all();
+    }
+
     public function porSucursal(ArticuloTipo $tipo, int $id): array
     {
         return DB::table('stock_sucursales')

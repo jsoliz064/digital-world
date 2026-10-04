@@ -36,8 +36,6 @@ class Repuesto extends Model
      */
     protected $auditarExcluye = ['cantidad'];
 
-    /** Umbral de "bajo stock", sobre el TOTAL. */
-    public const UMBRAL_BAJO_STOCK = 9;
 
     public static function tipoArticulo(): ArticuloTipo
     {

@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
  * Comparten stock_sucursales, stock_transferencias y stock_bajas, cada uno por
  * su propia columna (repuesto_id / accesorio_id), que resuelve ArticuloTipo.
  *
- * El modelo que lo usa declara tipoArticulo() y la constante UMBRAL_BAJO_STOCK.
+ * El modelo que lo usa declara tipoArticulo().
  */
 trait ArticuloDeStockTrait
 {
@@ -36,15 +36,31 @@ trait ArticuloDeStockTrait
     }
 
     /**
-     * Articulos por debajo del umbral. Mira el TOTAL, no cada sucursal.
+     * Articulos por agotarse en ALGUNA sucursal: una fila de stock con minimo
+     * fijado y la cantidad en el minimo o por debajo. Antes era un umbral fijo
+     * de 9 sobre el TOTAL, que no avisaba si una tienda se quedaba sin nada
+     * mientras el Almacen tenia.
      *
-     * La columna va CUALIFICADA con la tabla del modelo: este scope se anida
-     * como subconsulta dentro de los withSum del resumen por sucursal, y ahi el
-     * contexto exterior es stock_sucursales, que TAMBIEN tiene `cantidad`.
+     * Alias propio y columnas cualificadas: este scope se anida como
+     * subconsulta dentro de los withSum del resumen por sucursal, cuyo
+     * contexto exterior es TAMBIEN stock_sucursales.
      */
     public function scopeBajoStock(Builder $query): Builder
     {
-        return $query->where($this->getTable() . '.cantidad', '<=', static::UMBRAL_BAJO_STOCK);
+        $tabla = $this->getTable();
+        $col = static::tipoArticulo()->columna();
+
+        return $query->whereExists(fn($q) => $q->selectRaw('1')
+            ->from('stock_sucursales as ss_min')
+            ->whereColumn("ss_min.{$col}", "{$tabla}.id")
+            ->where('ss_min.minimo', '>', 0)
+            ->whereColumn('ss_min.cantidad', '<=', 'ss_min.minimo'));
+    }
+
+    /** Si alguna sucursal esta por agotarse. Usa `stocks` si ya vino cargado. */
+    public function estaPorAgotarse(): bool
+    {
+        return $this->stocks->contains(fn($s) => $s->estaPorAgotarse());
     }
 
     /** Las unidades que hay en una sucursal concreta. */
@@ -74,15 +90,18 @@ trait ArticuloDeStockTrait
      */
     public function desgloseStock(): string
     {
+        // En cero no se pinta, salvo que tenga minimo: entonces es justo lo que
+        // hay que reponer.
         $partes = $this->stocks
-            ->filter(fn($s) => (int) $s->cantidad !== 0)
+            ->filter(fn($s) => (int) $s->cantidad !== 0 || $s->estaPorAgotarse())
             ->sortByDesc('cantidad')
             ->map(function ($s) {
                 $cantidad = (int) $s->cantidad;
-                $clase = $cantidad < 0 ? 'text-red-600 font-semibold' : 'font-semibold';
+                $clase = $cantidad < 0 || $s->estaPorAgotarse() ? 'text-red-600 font-semibold' : 'font-semibold';
+                $minimo = $s->minimo > 0 ? ' <span class="text-gray-400">(mín. ' . (int) $s->minimo . ')</span>' : '';
 
                 return '<span class="whitespace-nowrap">' . e($s->sucursal?->nombre ?? 'Sin sucursal')
-                    . ' <span class="' . $clase . '">' . $cantidad . '</span></span>';
+                    . ' <span class="' . $clase . '">' . $cantidad . '</span>' . $minimo . '</span>';
             });
 
         if ($partes->isEmpty()) {

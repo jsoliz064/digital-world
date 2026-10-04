@@ -121,9 +121,10 @@ class ArticuloTable extends DataTableComponent
                 ->sortable()
                 ->format(fn($v) => 'Bs ' . number_format((float) $v, 2)),
             Column::make('Cantidad', 'cantidad')
-                ->format(fn($value) => $value > $modelo::UMBRAL_BAJO_STOCK
-                    ? '<span class="text-green-600 font-semibold">' . $value . '</span>'
-                    : '<span class="text-red-600 font-semibold">' . $value . '</span>')
+                // Rojo si alguna sucursal llego a su minimo (el desglose dice cual).
+                ->format(fn($value, $row) => $row->estaPorAgotarse()
+                    ? '<span class="text-red-600 font-semibold">' . $value . '</span>'
+                    : '<span class="text-green-600 font-semibold">' . $value . '</span>')
                 ->html()
                 ->sortable(),
             // No ordenable a proposito: son varias filas de la subtabla.

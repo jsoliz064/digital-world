@@ -105,6 +105,7 @@ class ArticuloFormModal extends Component
             'articulo.color_hex.regex' => 'El color debe ser un hexadecimal válido (ej: #1F2937).',
             'stockSucursales.*.required' => 'Indique la cantidad de cada sucursal.',
             'stockSucursales.*.min' => 'El stock de una sucursal no puede ser negativo.',
+            'minimosSucursales.*.min' => 'El mínimo no puede ser negativo.',
         ];
     }
 

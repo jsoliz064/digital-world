@@ -26,6 +26,11 @@ return new class extends Migration
      * stock se borra desde el codigo, que antes vacia sus filas.
      *
      * `cantidad` lleva signo a proposito: un descuadre se ve, no revienta.
+     *
+     * `minimo` es el stock minimo de ESE articulo en ESA sucursal (la tienda
+     * pide 5 fundas, el Almacen 30). 0 = sin minimo. "Por agotarse" es una fila
+     * con minimo > 0 y cantidad <= minimo. Lo escribe StockService::fijarMinimo;
+     * los movimientos solo tocan `cantidad`.
      */
     public function up(): void
     {
@@ -35,6 +40,7 @@ return new class extends Migration
             $table->unsignedBigInteger('accesorio_id')->nullable();
             $table->foreignId('sucursal_id')->constrained('sucursales')->restrictOnDelete();
             $table->integer('cantidad')->default(0);
+            $table->unsignedInteger('minimo')->default(0);
             $table->timestamps();
 
             $table->unique(['repuesto_id', 'sucursal_id'], 'ss_repuesto_sucursal_unico');

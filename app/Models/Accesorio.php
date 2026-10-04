@@ -26,7 +26,6 @@ class Accesorio extends Model
 
     protected $auditarExcluye = ['cantidad'];
 
-    public const UMBRAL_BAJO_STOCK = 9;
 
     public static function tipoArticulo(): ArticuloTipo
     {

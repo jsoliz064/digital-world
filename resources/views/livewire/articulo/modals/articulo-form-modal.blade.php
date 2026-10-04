@@ -122,6 +122,9 @@
                 @if ($conStock)
                     <div class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
                         <x-label>Stock por sucursal</x-label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            Cantidad y mínimo de cada sucursal. Con un mínimo, la sucursal avisa «por agotarse» al llegar a él (0 = sin mínimo).
+                        </p>
 
                         @forelse ($stockSucursales as $sucursalId => $cantidad)
                             {{-- wire:key con el indice: el wire:model se enlaza por posicion. --}}
@@ -131,15 +134,22 @@
                                         {{ $sucursalesPorId[$sucursalId]->nombre ?? 'Sucursal #' . $sucursalId }}
                                     </span>
                                 </div>
-                                <div class="w-32">
+                                <div class="w-24">
+                                    <span class="block text-xs text-gray-500">Cantidad</span>
                                     <x-input type="number" min="0" class="w-full"
                                         wire:model="stockSucursales.{{ $sucursalId }}" onfocus="this.select()"></x-input>
+                                </div>
+                                <div class="w-24">
+                                    <span class="block text-xs text-gray-500">Mínimo</span>
+                                    <x-input type="number" min="0" class="w-full"
+                                        wire:model="minimosSucursales.{{ $sucursalId }}" onfocus="this.select()"></x-input>
                                 </div>
                                 <button type="button" wire:click="quitarSucursalStock({{ $sucursalId }})"
                                     class="px-3 py-2 text-red-600 hover:text-red-800 dark:text-red-400 text-xl font-bold leading-none"
                                     title="Quitar esta sucursal">&times;</button>
                             </div>
                             <x-input-error for="stockSucursales.{{ $sucursalId }}"></x-input-error>
+                            <x-input-error for="minimosSucursales.{{ $sucursalId }}"></x-input-error>
                         @empty
                             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
                                 Sin stock asignado a ninguna sucursal. Lo normal es que entre por una compra.

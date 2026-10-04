@@ -17,7 +17,14 @@ class StockSucursal extends Model
 
     protected $casts = [
         'cantidad' => 'integer',
+        'minimo' => 'integer',
     ];
+
+    /** En su minimo o por debajo (con un minimo fijado). */
+    public function estaPorAgotarse(): bool
+    {
+        return $this->minimo > 0 && $this->cantidad <= $this->minimo;
+    }
 
     public function repuesto()
     {
