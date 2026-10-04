@@ -1,30 +1,20 @@
 <div>
-    <h2 class="text-center text-2xl font-bold text-gray-800 dark:text-white mb-6">
-        Productos en Reparación del Técnico: {{ $tecnico->nombre }} {!! $tecnico->getDivColor() !!}
+    {{-- El color va en linea: getDivColor() es un bloque centrado y en el
+         celular ocupaba un renglon propio. --}}
+    <h2 class="text-center text-lg sm:text-2xl font-bold text-gray-800 dark:text-white mb-3 sm:mb-5">
+        Reparaciones de {{ $tecnico->nombre }}
+        <span class="inline-block w-4 h-4 align-middle rounded-full border border-gray-300"
+            style="background-color: {{ $tecnico->color ?: 'transparent' }}"></span>
     </h2>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
-
-        {{-- Tarjeta: Productos Pendientes --}}
-        <div class="bg-brand-100 border-l-4 border-brand-500 text-brand-700 p-4 rounded-lg shadow-md">
-            <div class="flex items-center">
-                <div class="p-3 bg-brand-500 rounded-full text-white">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                        stroke="currentColor" class="w-6 h-6">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                </div>
-                <div class="ml-4">
-                    <p class="text-sm font-medium text-brand-900">Productos Pendientes</p>
-                    <p class="text-2xl font-bold">{{ $cant_productos_pendientes }}</p>
-                </div>
-            </div>
+    {{-- Una sola fila compacta: pendientes + las tres cifras de comision. --}}
+    <x-comision-cifras :cifras="$cifras" columnas="grid-cols-2 sm:grid-cols-4" class="mb-4">
+        <div class="border-l-4 px-2 py-1.5 sm:p-3 rounded-lg shadow-sm dark:bg-gray-800 min-w-0 bg-brand-50 border-brand-500">
+            <p class="text-[11px] sm:text-sm font-medium truncate text-brand-900 dark:text-brand-200">Reparaciones pendientes</p>
+            <p class="text-sm sm:text-xl font-bold text-brand-800 dark:text-brand-100">{{ $cant_productos_pendientes }}</p>
+            <p class="hidden sm:block text-xs truncate text-brand-700 dark:text-brand-300">Sin terminar</p>
         </div>
-
-    </div>
-
-    <x-comision-cifras :cifras="$cifras" class="mb-6" />
+    </x-comision-cifras>
 
     @can('comision.liquidar')
         <x-primary-button wire:click="liquidar">
