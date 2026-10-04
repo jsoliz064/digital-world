@@ -4,44 +4,65 @@ namespace App\Livewire\Cliente;
 
 use App\Models\Cliente;
 use App\Models\Venta;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
+/**
+ * La ficha del cliente: sus cifras, sus compras, sus pagos y sus garantias
+ * vigentes (docs/04). Las reservas no salen todavia: la reserva no tiene
+ * cliente hasta la etapa 5 (seña).
+ */
 class ClienteHistorialIndex extends Component
 {
     public $cliente;
 
-    /** Cifras FIJAS de la ficha: no se mueven con los filtros de la tabla. */
-    public int $ordenes = 0;
-    public float $totalGastado = 0;
-    public ?string $ultimaCompra = null;
+    /** compras | pagos | garantias */
+    public string $pestana = 'compras';
 
     public function mount($cliente_id)
     {
         $this->cliente = Cliente::findOrFail($cliente_id);
+    }
 
+    public function verPestana(string $pestana): void
+    {
+        $this->pestana = in_array($pestana, ['compras', 'pagos', 'garantias'], true) ? $pestana : 'compras';
+    }
+
+    public function cobrar(): void
+    {
+        abort_unless(auth()->user()->can('pago.create'), 403);
+
+        $this->dispatch('openCobroModal', clienteId: $this->cliente->id);
+    }
+
+    #[On('pagosActualizados')]
+    public function refrescar(): void
+    {
+    }
+
+    public function render()
+    {
         // Van aqui y no en la tabla a proposito: el pie de la tabla dice "esto es
         // lo que estoy mirando"; estas tarjetas dicen "esto es lo que este cliente
-        // lleva comprado". Es el mismo reparto que ProductoHistorialIndex.
-        //
-        // Estrictamente por cliente_id: es lo unico que sigue a la persona. Una
-        // venta es una orden, con todo lo que lleve (equipos, repuestos,
-        // accesorios, los cobros de reparacion y la mano de obra).
+        // lleva". Estrictamente por cliente_id: es lo unico que sigue a la persona.
+        // En render() y no en mount(): un cobro las cambia.
         $fila = Venta::where('cliente_id', $this->cliente->id)
             ->toBase()
             ->selectRaw('
                 COUNT(*) as ordenes,
                 COALESCE(SUM(total), 0) as total_gastado,
+                COALESCE(SUM(CASE WHEN saldo > 0 THEN saldo ELSE 0 END), 0) as deuda,
                 MAX(created_at) as ultima
             ')
             ->first();
 
-        $this->ordenes = (int) ($fila->ordenes ?? 0);
-        $this->totalGastado = round((float) ($fila->total_gastado ?? 0), 2);
-        $this->ultimaCompra = $fila->ultima ?? null;
-    }
-
-    public function render()
-    {
-        return view('livewire.cliente.cliente-historial-index');
+        return view('livewire.cliente.cliente-historial-index', [
+            'ordenes' => (int) ($fila->ordenes ?? 0),
+            'totalGastado' => round((float) ($fila->total_gastado ?? 0), 2),
+            'deuda' => round((float) ($fila->deuda ?? 0), 2),
+            'ultimaCompra' => $fila->ultima ?? null,
+            'garantias' => $this->pestana === 'garantias' ? $this->cliente->garantiasVigentes() : collect(),
+        ]);
     }
 }

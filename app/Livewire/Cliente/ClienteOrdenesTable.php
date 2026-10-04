@@ -9,6 +9,7 @@ use App\Models\Venta;
 use App\Models\VentaDetalle;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
 use Rappasoft\LaravelLivewireTables\Views\Column;
 use Rappasoft\LaravelLivewireTables\Views\Filters\DateFilter;
@@ -31,6 +32,12 @@ class ClienteOrdenesTable extends DataTableComponent
     public function mount($cliente_id): void
     {
         $this->cliente = Cliente::findOrFail($cliente_id);
+    }
+
+    #[On('pagosActualizados')]
+    public function refrescar(): void
+    {
+        $this->totales = null;
     }
 
     public function configure(): void
@@ -149,7 +156,7 @@ class ClienteOrdenesTable extends DataTableComponent
     {
         return $this->totales ??= $this->scopedQuery()
             ->toBase()
-            ->selectRaw('COUNT(*) as ordenes, COALESCE(SUM(total), 0) as total')
+            ->selectRaw('COUNT(*) as ordenes, COALESCE(SUM(total), 0) as total, COALESCE(SUM(saldo), 0) as saldo')
             ->first();
     }
 
@@ -207,6 +214,14 @@ class ClienteOrdenesTable extends DataTableComponent
                 ->sortable()
                 ->format(fn($value) => 'Bs. ' . number_format((float) $value, 2))
                 ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->total, 2)),
+
+            Column::make('Saldo (Bs)', 'saldo')
+                ->sortable()
+                ->format(fn($value) => (float) $value > 0
+                    ? '<span class="font-semibold text-amber-700 dark:text-amber-300">Bs. ' . number_format((float) $value, 2) . '</span>'
+                    : '<span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">Pagada</span>')
+                ->html()
+                ->footer(fn($rows) => 'Bs. ' . number_format((float) $this->getTotales()->saldo, 2)),
 
             Column::make('Vendedor', 'user.name')
                 ->sortable()
