@@ -37,9 +37,11 @@ class ReporteInventarioIndex extends Component
 
     private function valorPorSucursal()
     {
+        // Sin los de una compra en borrador: tampoco sus articulos entraron
+        // todavia al stock, y el valor tiene que medir lo mismo en los dos.
         $equipos = $this->porSucursal(DB::table('productos')
             ->whereNull('dado_de_baja_at')
-            ->whereNotIn('estado', ProductoEstado::vendidos()), 'sucursal_id')
+            ->whereNotIn('estado', [...ProductoEstado::vendidos(), ProductoEstado::EnCompra->value]), 'sucursal_id')
             ->groupBy('sucursal_id')
             ->selectRaw('sucursal_id, COUNT(*) AS cantidad, COALESCE(SUM(costo_total), 0) AS costo,
                 COALESCE(SUM(CASE WHEN estado = ? THEN costo_total ELSE precio_vendedor END), 0) AS venta', [ProductoEstado::Roto->value])

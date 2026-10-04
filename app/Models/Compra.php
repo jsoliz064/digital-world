@@ -16,7 +16,8 @@ use Illuminate\Validation\ValidationException;
  * CompraService; lo pagado al proveedor, en compras_pagos (PagoProveedorService);
  * los reclamos, en compras_reclamos (ReclamoService).
  *
- * `saldo` es GENERADA (total - pagado) y el estado se DERIVA de los reclamos.
+ * `saldo` es GENERADA (total - pagado) y el estado se DERIVA: Borrador sin
+ * `finalizada_at`, y despues de los reclamos.
  */
 class Compra extends Model
 {
@@ -29,6 +30,7 @@ class Compra extends Model
     protected $casts = [
         'fecha' => 'date',
         'pagada_at' => 'datetime',
+        'finalizada_at' => 'datetime',
     ];
 
     public function proveedor()
@@ -78,18 +80,56 @@ class Compra extends Model
         return round(max(0, (float) $this->total - (float) $this->pagado), 2);
     }
 
+    /** Sin finalizar: nada de lo cargado entro al stock ni se puede vender. */
+    public function esBorrador(): bool
+    {
+        return $this->finalizada_at === null;
+    }
+
+    public function scopeFinalizadas(Builder $query): Builder
+    {
+        return $query->whereNotNull('compras.finalizada_at');
+    }
+
+    /**
+     * Sin pagar / Parcial / Pagada: el estado de pago, aparte del de la compra
+     * (una compra en borrador puede tener un adelanto). Clases literales.
+     *
+     * @return array{0:string,1:string} [etiqueta, clases]
+     */
+    public function estadoPago(): array
+    {
+        return match (true) {
+            $this->pagada_at !== null => ['Pagada', 'bg-green-100 text-green-800'],
+            (float) $this->pagado > 0 => ['Parcial', 'bg-blue-100 text-blue-800'],
+            default => ['Sin pagar', 'bg-gray-100 text-gray-700'],
+        };
+    }
+
+    public function badgePago(): string
+    {
+        [$etiqueta, $clases] = $this->estadoPago();
+
+        return '<span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ' . $clases . '">' . e($etiqueta) . '</span>';
+    }
+
     public function scopeConSaldo(Builder $query): Builder
     {
         return $query->where('compras.saldo', '>', 0);
     }
 
     /**
-     * Recibida / Con reclamo / Resuelta, derivado de los reclamos. Usa
+     * Borrador sin finalizar; si no, Recibida / Con reclamo / Resuelta,
+     * derivado de los reclamos. Usa
      * reclamos_abiertos y reclamos_total si vienen del SELECT (withCount), y si
      * no, los cuenta.
      */
     public function estado(): CompraEstado
     {
+        if ($this->esBorrador()) {
+            return CompraEstado::Borrador;
+        }
+
         $abiertos = $this->reclamos_abiertos ?? $this->reclamos()->where('estado', ReclamoEstado::Abierto->value)->count();
         $total = $this->reclamos_total ?? $this->reclamos()->count();
 
@@ -112,6 +152,12 @@ class Compra extends Model
     public function scopeConEstado(Builder $query, CompraEstado $estado): Builder
     {
         $abierto = fn($q) => $q->where('estado', ReclamoEstado::Abierto->value);
+
+        if ($estado === CompraEstado::Borrador) {
+            return $query->whereNull('compras.finalizada_at');
+        }
+
+        $query->finalizadas();
 
         return match ($estado) {
             CompraEstado::ConReclamo => $query->whereHas('reclamos', $abierto),

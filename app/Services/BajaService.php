@@ -41,6 +41,12 @@ class BajaService
         // un tecnico: terminarla lo devuelve a Inventario con
         // EstadoProductoService, que rechaza los dados de baja, y la pantalla
         // del tecnico quedaria sin poder cerrar su lote.
+        if ($producto->estado === ProductoEstado::EnCompra->value) {
+            throw ValidationException::withMessages([
+                'motivo' => "El equipo {$producto->imei} es de una compra sin finalizar: quítalo de la compra en vez de darlo de baja.",
+            ]);
+        }
+
         if (in_array($producto->estado, [...ProductoEstado::vendidos(), ProductoEstado::Reserva->value, ProductoEstado::Reparacion->value], true)) {
             throw ValidationException::withMessages([
                 'motivo' => "El equipo {$producto->imei} está en " . ProductoEstado::labelDe($producto->estado)

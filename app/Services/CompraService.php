@@ -2,14 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\BitacoraEvento;
 use App\Enums\LineaTipo;
 use App\Enums\ProductoEstado;
+use App\Models\Bitacora;
 use App\Models\Compra;
 use App\Models\CompraDetalle;
 use App\Models\Producto;
 use App\Models\ProductoImagen;
 use App\Models\User;
-use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -17,9 +18,15 @@ use Illuminate\Validation\ValidationException;
  *
  * Una compra trae equipos (cada uno es una linea de cantidad 1, y el equipo se
  * CREA con ella) y repuestos o accesorios (con cantidad, que entran al stock de
- * la sucursal de la compra). Los equipos se dan de alta de a uno desde el
- * detalle de la compra (con fotos y camara); los articulos van en el
- * formulario de crear/editar la compra.
+ * la sucursal de la compra).
+ *
+ * BORRADOR: una compra de 50 equipos no se carga en una sola pantalla sin
+ * perderla al primer corte de internet. Se crea la cabecera (crear()) y todo
+ * lo demas se guarda linea por linea desde el detalle. Mientras no tiene
+ * `finalizada_at`, nada entra al stock y sus equipos esperan en EnCompra (no se
+ * venden). finalizar() mete el stock, libera los equipos y registra lo pagado
+ * al recibir. Despues se puede seguir corrigiendo, y entonces cada cambio
+ * mueve el stock en el acto.
  *
  * El costo de una linea de equipo es su `costo_unidad`: los dos solo los
  * escribe este servicio, y productos:auditar vigila que no diverjan.
@@ -36,80 +43,179 @@ class CompraService
     ) {}
 
     /**
-     * Crea la compra con sus articulos (los equipos se agregan despues, desde
-     * el detalle).
+     * Crea la cabecera, en BORRADOR. Lo comprado se carga despues desde el
+     * detalle, linea por linea, y lo pagado al recibir va al finalizar.
      *
      * @param  array  $cabecera  proveedor_id, fecha, sucursal_id
-     * @param  array  $pagos     lo pagado al recibir (filas de PagoProveedorService)
      */
-    public function crear(array $cabecera, array $articulos, User $user, ?string $clave = null, array $pagos = []): Compra
+    public function crear(array $cabecera, User $user, ?string $clave = null): Compra
     {
-        $articulos = $this->normalizar($articulos);
-
-        $compra = Compra::create([
+        return Compra::create([
             'clave_idempotencia' => $clave,
             'proveedor_id' => $cabecera['proveedor_id'],
             'fecha' => $cabecera['fecha'],
             'sucursal_id' => $cabecera['sucursal_id'],
             'user_id' => $user->id,
-            'total' => round($articulos->sum(fn($l) => $l['cantidad'] * $l['costo']), 2),
+            'total' => 0,
+        ]);
+    }
+
+    /** Edita proveedor y fecha. La sucursal NO cambia: cada linea ya la congelo. */
+    public function actualizar(Compra $compra, array $cabecera): Compra
+    {
+        $compra->update([
+            'proveedor_id' => $cabecera['proveedor_id'],
+            'fecha' => $cabecera['fecha'],
         ]);
 
-        // Ordenado por (tipo, id): dos guardados simultaneos con las mismas
-        // lineas en distinto orden se bloquearian mutuamente en InnoDB.
-        foreach ($articulos->sortKeys() as $linea) {
-            $this->agregarArticulo($compra, $linea);
-        }
-
-        $this->stock->recalcularTotales();
-        $compra->recalcularTotal();
-
-        // Despues del total: el saldo se mide contra lo comprado.
-        return app(PagoProveedorService::class)->registrar($compra, $pagos, true, $user, $clave);
+        return $compra;
     }
 
     /**
-     * Edita proveedor, fecha y los articulos. La sucursal NO cambia: el stock ya
-     * entro en ella. Compara por articulo y mueve solo la diferencia:
-     * ajustarEntrada() para lo que cambio, retirar() para lo que se quito (y
-     * falla con mensaje si esas unidades ya se vendieron).
+     * Agrega un repuesto o accesorio, o cambia la cantidad y el costo de su
+     * linea: la clave natural (cd_compra_articulo_unico) hace que reintentar
+     * no la duplique. En borrador no toca el stock; en una compra finalizada
+     * mueve solo la diferencia (ajustarEntrada), en la sucursal de la linea.
+     *
+     * @param  array  $linea  ['tipo' => 'Repuesto'|'Accesorio', 'id', 'cantidad', 'costo']
      */
-    public function actualizar(Compra $compra, array $cabecera, array $articulos): Compra
+    public function guardarArticulo(Compra $compra, array $linea): CompraDetalle
     {
-        $articulos = $this->normalizar($articulos);
-        $actuales = $compra->detalles()->whereNull('producto_id')->get()
-            ->keyBy(fn($d) => $d->tipo . ':' . $d->{LineaTipo::from($d->tipo)->columna()});
+        $linea = $this->normalizar($linea);
+        $tipo = LineaTipo::from($linea['tipo'])->articulo();
+        $mueveStock = !$compra->esBorrador();
 
-        foreach ($actuales->diffKeys($articulos) as $detalle) {
-            $tipo = $detalle->tipoLinea()->articulo();
-            $this->stock->retirar($tipo, $detalle->{$tipo->columna()}, $detalle->sucursal_id, (int) $detalle->cantidad);
-            $detalle->delete();
-        }
+        $detalle = $compra->detalles()->where($tipo->columna(), $linea['id'])->first();
 
-        foreach ($actuales->intersectByKeys($articulos) as $clave => $detalle) {
-            $linea = $articulos[$clave];
-            $tipo = $detalle->tipoLinea()->articulo();
-            $this->stock->ajustarEntrada($tipo, $detalle->{$tipo->columna()}, $detalle->sucursal_id, (int) $detalle->cantidad, $linea['cantidad']);
+        if ($detalle) {
+            if ($mueveStock) {
+                $this->stock->ajustarEntrada($tipo, $linea['id'], $detalle->sucursal_id, (int) $detalle->cantidad, $linea['cantidad']);
+            }
+
             $detalle->update([
+                'cantidad' => $linea['cantidad'],
+                'costo' => $linea['costo'],
+                'subtotal' => round($linea['cantidad'] * $linea['costo'], 2),
+            ]);
+        } else {
+            if ($mueveStock) {
+                $this->stock->ingresar($tipo, $linea['id'], $compra->sucursal_id, $linea['cantidad']);
+            }
+
+            $detalle = CompraDetalle::create([
+                'compra_id' => $compra->id,
+                $tipo->columna() => $linea['id'],
+                'sucursal_id' => $compra->sucursal_id,
                 'cantidad' => $linea['cantidad'],
                 'costo' => $linea['costo'],
                 'subtotal' => round($linea['cantidad'] * $linea['costo'], 2),
             ]);
         }
 
-        foreach ($articulos->diffKeys($actuales)->sortKeys() as $linea) {
-            $this->agregarArticulo($compra, $linea);
-        }
-
-        $compra->fill([
-            'proveedor_id' => $cabecera['proveedor_id'],
-            'fecha' => $cabecera['fecha'],
-        ]);
-
         $this->stock->recalcularTotales();
         $compra->recalcularTotal();
 
-        return $compra;
+        return $detalle;
+    }
+
+    /**
+     * Quita la linea de un repuesto o accesorio. En una compra finalizada sus
+     * unidades salen del stock (retirar() falla con mensaje si ya se vendieron).
+     */
+    public function quitarArticulo(Compra $compra, int $detalleId): void
+    {
+        $detalle = $compra->detalles()->whereNull('producto_id')->whereKey($detalleId)->first();
+
+        if (!$detalle) {
+            return; // ya se quito (reintento)
+        }
+
+        if (!$compra->esBorrador()) {
+            $tipo = $detalle->tipoLinea()->articulo();
+            $this->stock->retirar($tipo, $detalle->{$tipo->columna()}, $detalle->sucursal_id, (int) $detalle->cantidad);
+        }
+
+        $detalle->delete();
+
+        $this->stock->recalcularTotales();
+        $compra->recalcularTotal();
+    }
+
+    /**
+     * Los estados a los que puede pasar un equipo al finalizar la compra. Sin
+     * Reparacion: mandarlo al tecnico abre una reparacion, y un equipo que
+     * todavia no se recibio no entra al banco de nadie.
+     *
+     * @return string[]
+     */
+    public static function estadosDestinoBorrador(): array
+    {
+        return [ProductoEstado::Inventario->value, ProductoEstado::Fuera->value, ProductoEstado::Roto->value];
+    }
+
+    /**
+     * Cierra el borrador: los equipos pasan de EnCompra a su estado elegido,
+     * los articulos entran al stock de la sucursal de su linea, y se registra lo
+     * pagado al recibir. Orden de bloqueo de la casa: la compra (la bloquea el
+     * componente), los equipos por id, el stock.
+     *
+     * Rechaza una compra ya finalizada: reintentar no mete el stock dos veces.
+     *
+     * @param  array  $pagos  lo pagado al recibir (filas de PagoProveedorService)
+     */
+    public function finalizar(Compra $compra, User $user, array $pagos = [], ?string $clave = null): Compra
+    {
+        if (!$compra->esBorrador()) {
+            throw ValidationException::withMessages([
+                'detalles' => "La compra #{$compra->id} ya se finalizó.",
+            ]);
+        }
+
+        $detalles = $compra->detalles()->get();
+
+        if ($detalles->isEmpty()) {
+            throw ValidationException::withMessages([
+                'detalles' => 'La compra no tiene nada cargado: agrega equipos o artículos antes de finalizarla.',
+            ]);
+        }
+
+        $estados = app(EstadoProductoService::class);
+        $equipos = $detalles->whereNotNull('producto_id')->sortBy('producto_id');
+
+        foreach ($equipos as $detalle) {
+            $destino = ProductoEstado::tryFrom((string) $detalle->estado_destino) ?? ProductoEstado::Inventario;
+
+            $estados->cambiar(
+                (int) $detalle->producto_id,
+                ProductoEstado::EnCompra,
+                $destino,
+                "Compra #{$compra->id} finalizada: el equipo pasa a {$destino->label()}",
+            );
+
+            $detalle->update(['estado_destino' => null]);
+        }
+
+        // Ordenado por (tipo, id), como en todos los flujos que mueven stock.
+        $articulos = $detalles->whereNull('producto_id')
+            ->sortBy(fn($d) => $d->tipo . ':' . str_pad((string) $d->{$d->tipoLinea()->columna()}, 12, '0', STR_PAD_LEFT));
+        $unidades = 0;
+
+        foreach ($articulos as $detalle) {
+            $tipo = $detalle->tipoLinea()->articulo();
+            $this->stock->ingresar($tipo, $detalle->{$tipo->columna()}, $detalle->sucursal_id, (int) $detalle->cantidad);
+            $unidades += (int) $detalle->cantidad;
+        }
+
+        $this->stock->recalcularTotales();
+
+        $compra->anotar(
+            BitacoraEvento::Finalizada->value,
+            "Compra finalizada: {$equipos->count()} equipos y {$unidades} unidades de artículos, Bs " . number_format((float) $compra->total, 2),
+        );
+        $compra->finalizada_at = now();
+        $compra->save();
+
+        return app(PagoProveedorService::class)->registrar($compra, $pagos, true, $user, $clave);
     }
 
     /**
@@ -124,13 +230,23 @@ class CompraService
     {
         $datos['sucursal_id'] = $datos['sucursal_id'] ?? $compra->sucursal_id;
         $datos['estado'] = $datos['estado'] ?? ProductoEstado::Inventario->value;
+        $destino = null;
+        $frase = "Producto registrado en la compra #{$compra->id}";
+
+        // En borrador el equipo espera en EnCompra y la linea guarda el estado
+        // elegido, que finalizar() le aplica.
+        if ($compra->esBorrador()) {
+            $destino = $this->validarDestino($datos['estado']);
+            $datos['estado'] = ProductoEstado::EnCompra->value;
+            $frase .= ' (en borrador: no se vende hasta finalizar la compra)';
+        }
 
         // make() + anotar() + save() y no create(): asi el Observer escribe UNA
         // fila con el estado con el que nace el equipo, la frase y su retrato.
         // Sin esta fila, un equipo creado en Fuera o Roto nacia sin traza y el
         // auditor lo veia como "ultimo historial distinto del estado real".
         $producto = new Producto($datos);
-        $producto->anotar($datos['estado'], "Producto registrado en la compra #{$compra->id}");
+        $producto->anotar($datos['estado'], $frase);
         $producto->save();
 
         CompraDetalle::create([
@@ -140,6 +256,7 @@ class CompraService
             'cantidad' => 1,
             'costo' => (float) $producto->costo_unidad,
             'subtotal' => (float) $producto->costo_unidad,
+            'estado_destino' => $destino,
         ]);
 
         foreach ($fotos as $foto) {
@@ -150,6 +267,39 @@ class CompraService
         $compra->recalcularTotal();
 
         return $producto;
+    }
+
+    /**
+     * Cambia el estado al que pasara al finalizar un equipo de una compra en
+     * borrador (el modal de editar del lote). El estado real sigue en EnCompra.
+     */
+    public function cambiarEstadoDestino(Producto $producto, string $estado): void
+    {
+        $detalle = $producto->compraDetalle;
+
+        if ($producto->estado !== ProductoEstado::EnCompra->value || !$detalle || !$detalle->compra->esBorrador()) {
+            throw ValidationException::withMessages([
+                'detalles' => "El equipo {$producto->imei} ya no está en una compra en borrador.",
+            ]);
+        }
+
+        $destino = $this->validarDestino($estado);
+        $antes = $detalle->estado_destino;
+
+        if ($antes === $destino) {
+            return;
+        }
+
+        $detalle->update(['estado_destino' => $destino]);
+
+        // La linea no es Auditable: el hecho se anota en el equipo.
+        Bitacora::registrar(
+            $producto,
+            BitacoraEvento::Editado->value,
+            'Estado al finalizar la compra: ' . ProductoEstado::labelDe($destino),
+            ['compra_id' => $detalle->compra_id],
+            ['estado_destino' => [$antes, $destino]],
+        );
     }
 
     /**
@@ -209,9 +359,11 @@ class CompraService
     }
 
     /**
-     * Elimina una compra. Solo sin equipos (cada equipo se quita antes, con sus
-     * propias reglas). Los articulos salen del stock de la sucursal de su
-     * linea; si ya se vendieron, retirar() falla con mensaje y no se borra nada.
+     * Elimina una compra. En borrador se va entera, equipos incluidos: estan en
+     * EnCompra y no pudieron venderse, repararse ni regalarse, y su stock nunca
+     * entro. Finalizada, solo sin equipos (cada equipo se quita antes, con sus
+     * propias reglas); los articulos salen del stock de la sucursal de su
+     * linea, y si ya se vendieron, retirar() falla con mensaje y no se borra nada.
      */
     public function eliminar(Compra $compra): void
     {
@@ -220,6 +372,17 @@ class CompraService
             throw ValidationException::withMessages([
                 'detalles' => "La compra #{$compra->id} tiene pagos al proveedor registrados: anúlalos antes de eliminarla.",
             ]);
+        }
+
+        if ($compra->esBorrador()) {
+            foreach ($compra->productos()->orderBy('productos.id')->get() as $producto) {
+                $this->quitarProducto($producto);
+            }
+
+            $compra->detalles()->delete();
+            $compra->delete();
+
+            return;
         }
 
         if ($compra->detalles()->whereNotNull('producto_id')->exists()) {
@@ -240,47 +403,31 @@ class CompraService
 
     // ------------------------------------------------------------------ apoyo
 
-    private function agregarArticulo(Compra $compra, array $linea): void
+    private function validarDestino(string $estado): string
     {
-        $tipo = LineaTipo::from($linea['tipo'])->articulo();
-
-        $this->stock->ingresar($tipo, $linea['id'], $compra->sucursal_id, $linea['cantidad']);
-
-        CompraDetalle::create([
-            'compra_id' => $compra->id,
-            $tipo->columna() => $linea['id'],
-            'sucursal_id' => $compra->sucursal_id,
-            'cantidad' => $linea['cantidad'],
-            'costo' => $linea['costo'],
-            'subtotal' => round($linea['cantidad'] * $linea['costo'], 2),
-        ]);
-    }
-
-    /** @return Collection<string,array> keyed "Tipo:id" */
-    private function normalizar(array $articulos): Collection
-    {
-        $lineas = collect($articulos)->map(function ($l) {
-            $tipo = LineaTipo::tryFrom((string) ($l['tipo'] ?? ''));
-            $id = (int) ($l['id'] ?? 0);
-            $cantidad = (int) ($l['cantidad'] ?? 0);
-            $costo = round((float) ($l['costo'] ?? 0), 2);
-
-            if (!$tipo || $tipo === LineaTipo::Producto || $id <= 0) {
-                throw ValidationException::withMessages(['detalles' => 'Hay una línea de compra inválida. Recarga la pantalla.']);
-            }
-            if ($cantidad < 1 || $costo < 0) {
-                throw ValidationException::withMessages(['detalles' => 'Cada línea necesita al menos una unidad y un costo que no sea negativo.']);
-            }
-
-            return ['tipo' => $tipo->value, 'id' => $id, 'cantidad' => $cantidad, 'costo' => $costo];
-        });
-
-        $porClave = $lineas->keyBy(fn($l) => $l['tipo'] . ':' . $l['id']);
-
-        if ($porClave->count() !== $lineas->count()) {
-            throw ValidationException::withMessages(['detalles' => 'Hay un artículo repetido en la compra: suma la cantidad en una sola línea.']);
+        if (!in_array($estado, self::estadosDestinoBorrador(), true)) {
+            throw ValidationException::withMessages([
+                'status' => 'En una compra en borrador el equipo solo puede quedar en Inventario, Fuera o Roto al finalizarla. La reparación se manda después.',
+            ]);
         }
 
-        return $porClave;
+        return $estado;
+    }
+
+    private function normalizar(array $l): array
+    {
+        $tipo = LineaTipo::tryFrom((string) ($l['tipo'] ?? ''));
+        $id = (int) ($l['id'] ?? 0);
+        $cantidad = (int) ($l['cantidad'] ?? 0);
+        $costo = round((float) ($l['costo'] ?? 0), 2);
+
+        if (!$tipo || $tipo === LineaTipo::Producto || $id <= 0) {
+            throw ValidationException::withMessages(['detalles' => 'Hay una línea de compra inválida. Recarga la pantalla.']);
+        }
+        if ($cantidad < 1 || $costo < 0) {
+            throw ValidationException::withMessages(['detalles' => 'Cada línea necesita al menos una unidad y un costo que no sea negativo.']);
+        }
+
+        return ['tipo' => $tipo->value, 'id' => $id, 'cantidad' => $cantidad, 'costo' => $costo];
     }
 }

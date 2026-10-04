@@ -23,6 +23,7 @@ class CompraDetalle extends Model
         'cantidad',
         'costo',
         'subtotal',
+        'estado_destino',
     ];
 
     protected $casts = [

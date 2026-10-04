@@ -38,6 +38,7 @@ class AuditarProductos extends Command
         $this->enVentaSinEstarVendidos();
         $this->ventasSinDetalles();
         $this->comprasSinDetalles();
+        $this->enCompraDescuadrados();
         $this->productosSinCompra();
         $this->imeiDuplicados();
         $this->historialDesalineado();
@@ -123,21 +124,47 @@ class AuditarProductos extends Command
     }
 
     /**
-     * Una compra sin lineas ni equipos. No es necesariamente un error (se crea
-     * la cabecera y despues se cargan los equipos), pero una vieja vacia es
-     * basura.
+     * Una compra FINALIZADA sin lineas: finalizar() exige al menos una, asi que
+     * solo queda vacia si alguien le quito todo despues. Un borrador vacio es
+     * normal (se crea la cabecera y despues se carga).
      */
     private function comprasSinDetalles(): void
     {
         $filas = DB::table('compras as c')
+            ->whereNotNull('c.finalizada_at')
             ->whereNotExists(fn($q) => $q->select(DB::raw(1))
                 ->from('compras_detalles as cd')
                 ->whereColumn('cd.compra_id', 'c.id'))
-            ->where('c.created_at', '<', now()->subDay())
             ->select('c.id', 'c.fecha', 'c.created_at')
             ->get();
 
-        $this->reportar('Compras vacias de mas de un dia', $filas, ['id', 'fecha', 'created_at']);
+        $this->reportar('Compras finalizadas sin ninguna linea', $filas, ['id', 'fecha', 'created_at']);
+    }
+
+    /**
+     * EnCompra <=> su compra sigue en borrador. Y el estado_destino solo vive
+     * mientras tanto: finalizar() lo aplica y lo limpia.
+     */
+    private function enCompraDescuadrados(): void
+    {
+        $filas = DB::table('productos as p')
+            ->join('compras_detalles as cd', 'cd.producto_id', '=', 'p.id')
+            ->join('compras as c', 'c.id', '=', 'cd.compra_id')
+            ->where(fn($q) => $q
+                ->where(fn($q) => $q->where('p.estado', ProductoEstado::EnCompra->value)->whereNotNull('c.finalizada_at'))
+                ->orWhere(fn($q) => $q->where('p.estado', '!=', ProductoEstado::EnCompra->value)->whereNull('c.finalizada_at'))
+                ->orWhere(fn($q) => $q->whereNotNull('cd.estado_destino')->whereNotNull('c.finalizada_at')))
+            ->select('p.id', 'p.imei', 'p.estado', 'c.id as compra_id', 'c.finalizada_at', 'cd.estado_destino')
+            ->get();
+
+        // Un EnCompra sin linea de compra no tiene compra que lo libere.
+        $huerfanos = DB::table('productos as p')
+            ->where('p.estado', ProductoEstado::EnCompra->value)
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('compras_detalles as cd')->whereColumn('cd.producto_id', 'p.id'))
+            ->select('p.id', 'p.imei', 'p.estado', DB::raw('NULL as compra_id'), DB::raw('NULL as finalizada_at'), DB::raw('NULL as estado_destino'))
+            ->get();
+
+        $this->reportar('Equipos En compra que no coinciden con el borrador de su compra', $filas->merge($huerfanos), ['id', 'imei', 'estado', 'compra_id', 'finalizada_at', 'estado_destino']);
     }
 
     /**

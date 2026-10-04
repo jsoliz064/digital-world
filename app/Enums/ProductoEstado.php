@@ -29,6 +29,9 @@ enum ProductoEstado: string
     // Fallado de fabrica, reclamado al proveedor (ReclamoService): fuera de la
     // venta, del catalogo y de la reparacion hasta que el reclamo se cierre.
     case Reclamo = 'Reclamo';
+    // Cargado en una compra que sigue en borrador: existe (IMEI, fotos) pero
+    // no se vende hasta que la compra se finaliza (CompraService::finalizar).
+    case EnCompra = 'EnCompra';
 
     public function label(): string
     {
@@ -41,6 +44,7 @@ enum ProductoEstado: string
             self::Credito => 'Venta a crédito',
             self::Vendido => 'Vendido',
             self::Reclamo => 'En reclamo',
+            self::EnCompra => 'En compra',
         };
     }
 
@@ -73,7 +77,8 @@ enum ProductoEstado: string
     /**
      * Los que solo escribe un documento, nunca el selector de estado: Vendido y
      * Credito una venta, Reserva una reserva (ReservaService), Reclamo un
-     * reclamo al proveedor (ReclamoService). Elegirlos a mano
+     * reclamo al proveedor (ReclamoService), EnCompra una compra en borrador
+     * (CompraService). Elegirlos a mano
      * dejaria un equipo "vendido" sin venta o "reservado" sin cliente ni seña,
      * que es lo primero que caza el auditor.
      *
@@ -81,7 +86,7 @@ enum ProductoEstado: string
      */
     public static function soloPorDocumento(): array
     {
-        return [...self::vendidos(), self::Reserva->value, self::Reclamo->value];
+        return [...self::vendidos(), self::Reserva->value, self::Reclamo->value, self::EnCompra->value];
     }
 
     /**
@@ -93,7 +98,7 @@ enum ProductoEstado: string
      */
     public static function fueraDeCatalogo(): array
     {
-        return [self::Vendido->value, self::Credito->value, self::Roto->value, self::Reserva->value, self::Reclamo->value];
+        return [self::Vendido->value, self::Credito->value, self::Roto->value, self::Reserva->value, self::Reclamo->value, self::EnCompra->value];
     }
 
     /**
@@ -112,6 +117,7 @@ enum ProductoEstado: string
             self::Credito => 'teal',
             self::Vendido => '#ca8a04',
             self::Reclamo => '#be123c',
+            self::EnCompra => '#64748b',
         };
     }
 
@@ -167,6 +173,8 @@ enum ProductoEstado: string
             self::Reserva->value => (bool) $user?->can('reserva.index'),
             self::Reclamo->value => (bool) $user?->can('compra.reclamo'),
             self::Vendido->value, self::Credito->value => (bool) $user?->can('venta.detalle'),
+            // Se opera desde su compra (finalizar o quitarlo), no desde el modal.
+            self::EnCompra->value => false,
             default => (bool) self::validatePermission($estado),
         };
     }

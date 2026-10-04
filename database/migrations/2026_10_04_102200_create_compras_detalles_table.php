@@ -47,6 +47,10 @@ return new class extends Migration
             $table->unsignedInteger('cantidad')->default(1);
             $table->decimal('costo', 10, 2)->default(0);
             $table->decimal('subtotal', 12, 2)->default(0);
+            // Solo en la linea de un equipo de una compra en BORRADOR: el
+            // estado elegido al cargarlo (Inventario, Fuera, Roto). El equipo
+            // espera en EnCompra y finalizar() lo pasa a este estado.
+            $table->string('estado_destino', 20)->nullable();
             $table->timestamps();
 
             $table->foreign('compra_id', 'cd_compra_fk')->references('id')->on('compras')->restrictOnDelete();

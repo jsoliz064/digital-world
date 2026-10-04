@@ -101,8 +101,11 @@ class MovimientoStock extends Model
         // TIMESTAMP(fecha, TIME(created_at)): `fecha` es DATE y a pelo daria
         // 00:00:00, con lo que toda compra apareceria antes que las ventas del
         // mismo dia. Se conserva la fecha de negocio con la hora de registro.
+        // Solo compras finalizadas: la linea de un borrador todavia no movio
+        // el stock, y el historial mostraria una entrada que no ocurrio.
         $compras = DB::table('compras_detalles as d')
             ->join('compras as c', 'd.compra_id', '=', 'c.id')
+            ->whereNotNull('c.finalizada_at')
             ->leftJoin('users as u', 'c.user_id', '=', 'u.id')
             ->leftJoin('proveedores as pv', 'c.proveedor_id', '=', 'pv.id')
             ->leftJoin('sucursales as s', 'd.sucursal_id', '=', 's.id')

@@ -37,6 +37,8 @@ enum BitacoraEvento: string
     // el cobro de las piezas de una reparacion.
     case Pago = 'pago';
     case PagoAnulado = 'pago-anulado';
+    // La compra dejo de ser borrador: su stock entro y sus equipos se liberaron.
+    case Finalizada = 'finalizada';
 
     public function label(): string
     {
@@ -56,6 +58,7 @@ enum BitacoraEvento: string
             self::StockBaja => 'Baja de stock',
             self::Pago => 'Pago recibido',
             self::PagoAnulado => 'Pago anulado',
+            self::Finalizada => 'Compra finalizada',
         };
     }
 
@@ -78,6 +81,7 @@ enum BitacoraEvento: string
             self::StockBaja => 'bg-red-100 text-red-800',
             self::Pago => 'bg-teal-100 text-teal-800',
             self::PagoAnulado => 'bg-rose-100 text-rose-800',
+            self::Finalizada => 'bg-emerald-100 text-emerald-800',
         };
     }
 

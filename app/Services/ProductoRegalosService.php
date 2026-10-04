@@ -117,6 +117,13 @@ class ProductoRegalosService
             ]);
         }
 
+        // Todavia no se recibio: los regalos se le ponen cuando la compra se finaliza.
+        if ($producto->estado === ProductoEstado::EnCompra->value) {
+            throw ValidationException::withMessages([
+                'detalles' => "El equipo {$producto->imei} es de una compra sin finalizar: los regalos se agregan después de finalizarla.",
+            ]);
+        }
+
         return $producto;
     }
 

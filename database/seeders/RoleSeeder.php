@@ -96,6 +96,7 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'compra.detalle'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.create'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.edit'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'compra.finalizar'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.delete'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.reclamo'])->syncRoles([$role1]);
 

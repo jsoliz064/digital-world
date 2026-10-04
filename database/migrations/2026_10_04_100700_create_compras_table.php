@@ -33,6 +33,10 @@ return new class extends Migration
             $table->decimal('pagado', 12, 2)->default(0);
             $table->decimal('saldo', 12, 2)->storedAs('total - pagado');
             $table->timestamp('pagada_at')->nullable();
+            // NULL = Borrador: la cabecera existe y se va cargando, pero nada
+            // entro al stock ni se puede vender. CompraService::finalizar() la
+            // fija y recien ahi el stock entra y los equipos salen de EnCompra.
+            $table->timestamp('finalizada_at')->nullable();
             $table->foreignId('proveedor_id')->constrained('proveedores')->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             // Sucursal a la que entra lo comprado (cada linea la congela).
@@ -42,6 +46,7 @@ return new class extends Migration
             $table->unique('clave_idempotencia', 'compras_clave_idem_unico');
             $table->index('fecha', 'compras_fecha_index');
             $table->index('saldo', 'compras_saldo_index');
+            $table->index('finalizada_at', 'compras_finalizada_index');
         });
 
         DB::statement('ALTER TABLE compras ADD CONSTRAINT compras_pagado_rango CHECK (pagado >= 0 AND pagado <= total)');

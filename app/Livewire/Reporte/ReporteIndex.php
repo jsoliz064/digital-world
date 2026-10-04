@@ -271,11 +271,15 @@ class ReporteIndex extends Component
             ->when($tipo, fn($q) => $q->where('d.tipo', $tipo)), 'v.sucursal_id');
     }
 
-    /** Las lineas de compra del periodo, por la fecha de la compra. */
+    /**
+     * Las lineas de compra del periodo, por la fecha de la compra. Sin los
+     * borradores: todavia no entraron al inventario.
+     */
     private function lineasCompra($desde, $hasta, ?string $tipo = null): Builder
     {
         return $this->porSucursal(DB::table('compras_detalles as d')
             ->join('compras as c', 'c.id', '=', 'd.compra_id')
+            ->whereNotNull('c.finalizada_at')
             ->whereBetween('c.fecha', [$desde, $hasta])
             ->when($tipo, fn($q) => $q->where('d.tipo', $tipo)), 'c.sucursal_id');
     }
