@@ -19,6 +19,11 @@ class RoleSeeder extends Seeder
 
         Permission::firstOrCreate(['name' => 'dashboard.index'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'reporte.index'])->syncRoles([$role1]);
+        // Los cuatro reportes de la etapa 8 (docs/09).
+        Permission::firstOrCreate(['name' => 'reporte.vendedores'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'reporte.productos'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'reporte.inventario'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'reporte.clientes'])->syncRoles([$role1]);
 
         //ROLES
         Permission::firstOrCreate(['name' => 'rol.index'])->syncRoles([$role1]);

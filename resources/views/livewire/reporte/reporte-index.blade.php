@@ -10,6 +10,8 @@
                 </h1>
             </header>
 
+            @include('livewire.reporte.partials.nav', ['actual' => 'reporte'])
+
             {{-- Aviso de carga. El boton "Cancelar" que habia aqui llamaba a
                  $set('cancelLoading'), una propiedad que no existe: reventaba
                  con PropertyNotFoundException al pulsarlo. --}}
@@ -30,7 +32,7 @@
 
             {{-- Filtros --}}
             <x-collapse-card title="Filtros" :open-on-desktop="true">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end p-2">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end p-2">
                     <div>
                         <label for="startDate"
                             class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Fecha Inicio:</label>
@@ -62,6 +64,18 @@
                             class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 shadow-sm focus:border-brand-500 focus:ring focus:ring-brand-500 focus:ring-opacity-50 p-3 text-sm dark:bg-gray-700 dark:text-white">
                             <option value="daily">Día</option>
                             <option value="monthly">Mes</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="sucursalId"
+                            class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Sucursal:</label>
+                        <select id="sucursalId" wire:model.live="sucursalId"
+                            class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 shadow-sm focus:border-brand-500 focus:ring focus:ring-brand-500 focus:ring-opacity-50 p-3 text-sm dark:bg-gray-700 dark:text-white">
+                            <option value="">Todas</option>
+                            @foreach ($this->sucursales() as $sucursal)
+                                <option value="{{ $sucursal->id }}">{{ $sucursal->nombre }}{{ $sucursal->activa ? '' : ' (inactiva)' }}</option>
+                            @endforeach
                         </select>
                     </div>
                 </div>

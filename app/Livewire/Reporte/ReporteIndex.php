@@ -3,6 +3,7 @@
 namespace App\Livewire\Reporte;
 
 use App\Enums\LineaTipo;
+use App\Traits\ReporteFiltrosTrait;
 use Carbon\Carbon;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,7 @@ use Livewire\WithPagination;
  */
 class ReporteIndex extends Component
 {
+    use ReporteFiltrosTrait;
     use WithPagination;
 
     public const TABS = [
@@ -38,11 +40,8 @@ class ReporteIndex extends Component
     /** Umbral a partir del cual agrupar por dia deja de ser legible. */
     private const DIAS_AVISO_AGRUPACION = 90;
 
-    /** Descuento de cabecera repartido a prorrata entre las lineas de la venta. */
-    private const DESCUENTO_PRORRATEADO = 'SUM(d.subtotal / NULLIF(v.subtotal, 0) * v.descuento)';
-
-    /** Ingreso neto por periodo: bruto menos descuento prorrateado. */
-    private const INGRESO_NETO = 'SUM(d.subtotal) - SUM(d.subtotal / NULLIF(v.subtotal, 0) * v.descuento)';
+    // DESCUENTO_PRORRATEADO e INGRESO_NETO vienen de ReporteFiltrosTrait: los
+    // reportes de vendedores y de productos tienen que cuadrar con este.
 
     public $startDate;
     public $endDate;
@@ -103,6 +102,12 @@ class ReporteIndex extends Component
     {
         $this->resetPage();
         $this->validateDates();
+        $this->loadChartData();
+    }
+
+    public function updatedSucursalId()
+    {
+        $this->resetPage();
         $this->loadChartData();
     }
 
@@ -260,19 +265,19 @@ class ReporteIndex extends Component
      */
     private function lineasVenta($desde, $hasta, ?string $tipo = null): Builder
     {
-        return DB::table('ventas_detalles as d')
+        return $this->porSucursal(DB::table('ventas_detalles as d')
             ->join('ventas as v', 'v.id', '=', 'd.venta_id')
             ->whereBetween('v.created_at', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo));
+            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo)), 'v.sucursal_id');
     }
 
     /** Las lineas de compra del periodo, por la fecha de la compra. */
     private function lineasCompra($desde, $hasta, ?string $tipo = null): Builder
     {
-        return DB::table('compras_detalles as d')
+        return $this->porSucursal(DB::table('compras_detalles as d')
             ->join('compras as c', 'c.id', '=', 'd.compra_id')
             ->whereBetween('c.fecha', [$desde, $hasta])
-            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo));
+            ->when($tipo, fn($q) => $q->where('d.tipo', $tipo)), 'c.sucursal_id');
     }
 
     /**
@@ -336,17 +341,17 @@ class ReporteIndex extends Component
         $total = 0.0;
 
         if ($tipo === null || $tipo === LineaTipo::Producto->value) {
-            $total += (float) DB::table('productos')
-                ->whereBetween('dado_de_baja_at', [$desde, $hasta])
+            $total += (float) $this->porSucursal(DB::table('productos')
+                ->whereBetween('dado_de_baja_at', [$desde, $hasta]), 'sucursal_id')
                 ->sum('costo_total');
         }
 
         $articulo = $tipo ? LineaTipo::from($tipo)->articulo() : null;
 
         if ($tipo === null || $articulo) {
-            $total += (float) DB::table('stock_bajas')
+            $total += (float) $this->porSucursal(DB::table('stock_bajas')
                 ->whereBetween('created_at', [$desde, $hasta])
-                ->when($articulo, fn($q) => $q->whereNotNull($articulo->columna()))
+                ->when($articulo, fn($q) => $q->whereNotNull($articulo->columna())), 'sucursal_id')
                 ->sum(DB::raw('cantidad * costo'));
         }
 
@@ -361,8 +366,8 @@ class ReporteIndex extends Component
      */
     private function manoObra($desde, $hasta): float
     {
-        return round((float) DB::table('ventas')
-            ->whereBetween('created_at', [$desde, $hasta])
+        return round((float) $this->porSucursal(DB::table('ventas')
+            ->whereBetween('created_at', [$desde, $hasta]), 'sucursal_id')
             ->sum('mano_obra'), 2);
     }
 

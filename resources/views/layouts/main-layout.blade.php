@@ -629,9 +629,11 @@
                             </li>
                         @endcan
 
-                        @can('reporte.index')
+                        {{-- Al primer reporte que pueda abrir: cada uno tiene su permiso. --}}
+                        @php $rutaReportes = \App\Http\Controllers\ReporteController::primeraRuta(); @endphp
+                        @if ($rutaReportes)
                             <li>
-                                <a href="{{ route('reporte') }}"
+                                <a href="{{ route($rutaReportes) }}"
                                     class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
                                     <span class="inline-flex justify-center items-center ml-4">
                                         <i class="fa-solid fa-chart-simple"></i>
@@ -639,7 +641,7 @@
                                     <span class="ml-2 text-sm tracking-wide truncate">Reportes</span>
                                 </a>
                             </li>
-                        @endcan
+                        @endif
 
                         @can('comision.index')
                             <li>

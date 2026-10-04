@@ -232,6 +232,22 @@ Route::middleware([
     Route::get('reporte', [ReporteController::class, 'index'])
         ->middleware('can:reporte.index')
         ->name('reporte');
+
+    // Los cuatro reportes de la etapa 8 (docs/09), cada uno con su permiso.
+    Route::group(['prefix' => 'reportes'], function () {
+        Route::get('vendedores', [ReporteController::class, 'vendedores'])
+            ->middleware('can:reporte.vendedores')
+            ->name('reportes.vendedores');
+        Route::get('productos', [ReporteController::class, 'productos'])
+            ->middleware('can:reporte.productos')
+            ->name('reportes.productos');
+        Route::get('inventario', [ReporteController::class, 'inventario'])
+            ->middleware('can:reporte.inventario')
+            ->name('reportes.inventario');
+        Route::get('clientes', [ReporteController::class, 'clientes'])
+            ->middleware('can:reporte.clientes')
+            ->name('reportes.clientes');
+    });
 });
 
 Route::get('catalogo', [CatalogoController::class, 'index'])->name('catalogo');
