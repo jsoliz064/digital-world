@@ -10,4 +10,9 @@ class ProveedorController extends Controller
     {
         return view('app.proveedor.index');
     }
+
+    public function historial($proveedor_id)
+    {
+        return view('app.proveedor.historial', compact('proveedor_id'));
+    }
 }

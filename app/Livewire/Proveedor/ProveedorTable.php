@@ -25,6 +25,12 @@ class ProveedorTable extends DataTableComponent
             Column::make("Nombre", "nombre")
                 ->sortable()
                 ->searchable(),
+            // Lo que se le debe (cuentas por pagar), en una subconsulta.
+            Column::make("Se le debe")
+                ->label(fn($row) => (float) $row->deuda > 0
+                    ? '<span class="font-semibold text-amber-700 dark:text-amber-300">Bs ' . number_format((float) $row->deuda, 2) . '</span>'
+                    : '<span class="text-gray-400">—</span>')
+                ->html(),
             Column::make('Acciones', 'id')
                 ->format(function ($value, $row, Column $column) {
                     return view('livewire.proveedor.actions-buttons', [
@@ -33,6 +39,15 @@ class ProveedorTable extends DataTableComponent
                 }),
         ];
     }
+    public function builder(): \Illuminate\Database\Eloquent\Builder
+    {
+        return Proveedor::query()->addSelect([
+            'deuda' => \App\Models\Compra::selectRaw('COALESCE(SUM(saldo), 0)')
+                ->whereColumn('compras.proveedor_id', 'proveedores.id')
+                ->where('compras.saldo', '>', 0),
+        ]);
+    }
+
     #[On('refreshProveedorTable')]
     public function refreshProveedorTable()
     {

@@ -4,6 +4,7 @@ use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\CobranzaController;
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\CuentaPagarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MetodoPagoController;
 use App\Http\Controllers\ProductoCategoriaController;
@@ -58,6 +59,17 @@ Route::middleware([
     Route::get('proveedores', [ProveedorController::class, 'index'])
         ->middleware('can:proveedor.index')
         ->name('proveedores');
+
+    // La ficha: lo que se le debe, sus compras, pagos y reclamos.
+    Route::get('proveedores/{id}', [ProveedorController::class, 'historial'])
+        ->whereNumber('id')
+        ->middleware('can:proveedor.historial')
+        ->name('proveedores.historial');
+
+    // Lo que se le debe a los proveedores (docs/06).
+    Route::get('cuentas-por-pagar', [CuentaPagarController::class, 'index'])
+        ->middleware('can:cuenta-pagar.index')
+        ->name('cuentas-por-pagar');
 
     Route::get('sucursales', [SucursalController::class, 'index'])
         ->middleware('can:sucursal.index')

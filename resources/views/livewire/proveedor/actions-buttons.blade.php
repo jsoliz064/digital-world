@@ -1,5 +1,11 @@
 <div>
     <x-dropdown-table>
+        @can('proveedor.historial')
+            <a href="{{ route('proveedores.historial', $row->id) }}"
+                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
+                Ver ficha
+            </a>
+        @endcan
         @can('proveedor.edit')
             <button wire:click="openProveedorEditModal({{ $row->id }})"
                 class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
