@@ -19,6 +19,9 @@ enum BajaMotivo: string
     case Robo = 'Robo';
     case Defecto = 'Defecto';
     case Otro = 'Otro';
+    // El fallado que vuelve al proveedor al cerrar un reclamo (ReclamoService):
+    // su costo queda en 0, asi que no suma en Perdidas. No se revierte.
+    case Devolucion = 'Devolucion';
 
     public function label(): string
     {
@@ -28,6 +31,7 @@ enum BajaMotivo: string
             self::Robo => 'Robo',
             self::Defecto => 'Defecto de fábrica',
             self::Otro => 'Otro',
+            self::Devolucion => 'Devuelto al proveedor',
         };
     }
 
@@ -44,6 +48,23 @@ enum BajaMotivo: string
 
     public static function toSelectArray(): Collection
     {
-        return collect(self::cases())->mapWithKeys(fn($c) => [$c->value => $c->label()]);
+        return collect(self::manuales())->mapWithKeys(fn($c) => [$c->value => $c->label()]);
+    }
+
+    /**
+     * Los que se eligen a mano al dar de baja. Devolucion no: la escribe el
+     * cierre de un reclamo, con el costo en 0.
+     *
+     * @return self[]
+     */
+    public static function manuales(): array
+    {
+        return array_values(array_filter(self::cases(), fn($c) => $c !== self::Devolucion));
+    }
+
+    /** @return array<int,string> */
+    public static function valoresManuales(): array
+    {
+        return array_column(self::manuales(), 'value');
     }
 }

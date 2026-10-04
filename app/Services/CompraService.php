@@ -40,8 +40,9 @@ class CompraService
      * el detalle).
      *
      * @param  array  $cabecera  proveedor_id, fecha, sucursal_id
+     * @param  array  $pagos     lo pagado al recibir (filas de PagoProveedorService)
      */
-    public function crear(array $cabecera, array $articulos, User $user, ?string $clave = null): Compra
+    public function crear(array $cabecera, array $articulos, User $user, ?string $clave = null, array $pagos = []): Compra
     {
         $articulos = $this->normalizar($articulos);
 
@@ -63,7 +64,8 @@ class CompraService
         $this->stock->recalcularTotales();
         $compra->recalcularTotal();
 
-        return $compra;
+        // Despues del total: el saldo se mide contra lo comprado.
+        return app(PagoProveedorService::class)->registrar($compra, $pagos, true, $user, $clave);
     }
 
     /**
@@ -177,6 +179,13 @@ class CompraService
      */
     public function quitarProducto(Producto $producto): void
     {
+        // En reclamo, o reemplazo de un reclamo: es parte de ese tramite.
+        if (\App\Models\CompraReclamo::where('producto_id', $producto->id)->orWhere('producto_reemplazo_id', $producto->id)->exists()) {
+            throw ValidationException::withMessages([
+                'detalles' => "El equipo {$producto->imei} tiene un reclamo al proveedor (o es el reemplazo de uno): no se puede quitar de la compra.",
+            ]);
+        }
+
         // Recibido en permuta: es el pago de una venta. Se va anulando esa venta.
         if ($producto->permuta()->exists()) {
             throw ValidationException::withMessages([
@@ -206,6 +215,13 @@ class CompraService
      */
     public function eliminar(Compra $compra): void
     {
+        // Decision del usuario: con pagos no se elimina; se anulan antes.
+        if ($compra->pagos()->exists()) {
+            throw ValidationException::withMessages([
+                'detalles' => "La compra #{$compra->id} tiene pagos al proveedor registrados: anúlalos antes de eliminarla.",
+            ]);
+        }
+
         if ($compra->detalles()->whereNotNull('producto_id')->exists()) {
             throw ValidationException::withMessages([
                 'detalles' => 'La compra tiene equipos: quítalos primero desde el detalle de la compra.',

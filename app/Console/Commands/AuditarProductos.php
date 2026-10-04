@@ -57,6 +57,10 @@ class AuditarProductos extends Command
         $this->reservasDescuadradas();
         $this->reservasConcretadasSinSena();
         $this->permutasDescuadradas();
+        $this->pagadoCompraDescuadrado();
+        $this->pagadaAtCompraIncoherente();
+        $this->reclamosDescuadrados();
+        $this->devueltosConCosto();
 
         $this->newLine();
 
@@ -395,6 +399,68 @@ class AuditarProductos extends Command
             ->get();
 
         $this->reportar('Pagos de permuta sin equipo o con otro costo', $filas, ['id', 'venta_id', 'monto', 'producto_id', 'costo_unidad']);
+    }
+
+    /** compras.pagado es la suma cacheada de compras_pagos (PagoProveedorService). */
+    private function pagadoCompraDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT c.id, c.pagado, COALESCE(SUM(p.monto), 0) AS calculado
+               FROM compras c
+          LEFT JOIN compras_pagos p ON p.compra_id = c.id
+           GROUP BY c.id, c.pagado
+             HAVING ABS(c.pagado - COALESCE(SUM(p.monto), 0)) > 0.009'
+        );
+
+        $this->reportar('compras.pagado distinto de sus pagos', collect($filas), ['id', 'pagado', 'calculado']);
+    }
+
+    /** Una compra con total queda pagada (pagada_at) si y solo si no tiene saldo. */
+    private function pagadaAtCompraIncoherente(): void
+    {
+        $filas = DB::table('compras')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->where('saldo', '>', 0)->whereNotNull('pagada_at'))
+                ->orWhere(fn($w) => $w->where('total', '>', 0)->where('saldo', '<=', 0)->whereNull('pagada_at'))
+                ->orWhere(fn($w) => $w->where('total', '<=', 0)->whereNotNull('pagada_at')))
+            ->select('id', 'total', 'pagado', 'saldo', 'pagada_at')
+            ->get();
+
+        $this->reportar('Compras con pagada_at en desacuerdo con el saldo', $filas, ['id', 'total', 'pagado', 'saldo', 'pagada_at']);
+    }
+
+    /** Equipo en Reclamo (sin baja) sin reclamo abierto, o reclamo abierto con el equipo en otro estado. */
+    private function reclamosDescuadrados(): void
+    {
+        $sinReclamo = DB::table('productos as p')
+            ->where('p.estado', ProductoEstado::Reclamo->value)
+            ->whereNull('p.dado_de_baja_at')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('compras_reclamos as r')
+                ->whereColumn('r.producto_id', 'p.id')->where('r.estado', 'Abierto'))
+            ->select('p.id', 'p.imei', 'p.estado', DB::raw('NULL as reclamo_id'))
+            ->get();
+
+        $otroEstado = DB::table('compras_reclamos as r')
+            ->join('productos as p', 'p.id', '=', 'r.producto_id')
+            ->where('r.estado', 'Abierto')
+            ->where('p.estado', '!=', ProductoEstado::Reclamo->value)
+            ->select('p.id', 'p.imei', 'p.estado', 'r.id as reclamo_id')
+            ->get();
+
+        $this->reportar('Equipos en Reclamo sin reclamo abierto, o al reves', $sinReclamo->merge($otroEstado), ['id', 'imei', 'estado', 'reclamo_id']);
+    }
+
+    /** El devuelto al proveedor no cuesta nada: ni el equipo ni su linea de compra. */
+    private function devueltosConCosto(): void
+    {
+        $filas = DB::table('productos as p')
+            ->leftJoin('compras_detalles as cd', 'cd.producto_id', '=', 'p.id')
+            ->where('p.motivo_baja', 'Devolucion')
+            ->where(fn($q) => $q->where('p.costo_unidad', '!=', 0)->orWhere('cd.costo', '!=', 0))
+            ->select('p.id', 'p.imei', 'p.costo_unidad', 'cd.costo')
+            ->get();
+
+        $this->reportar('Devueltos al proveedor con costo', $filas, ['id', 'imei', 'costo_unidad', 'costo']);
     }
 
     /** Imprime una comprobacion y cuenta el hallazgo si trajo filas. */

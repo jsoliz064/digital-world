@@ -48,6 +48,17 @@ class BajaService
             ]);
         }
 
+        // Un fallado en reclamo solo sale como Devolucion (al cerrar el reclamo,
+        // ReclamoService), y la Devolucion solo existe para el.
+        $enReclamo = $producto->estado === ProductoEstado::Reclamo->value;
+        if ($enReclamo !== ($motivo === BajaMotivo::Devolucion)) {
+            throw ValidationException::withMessages([
+                'motivo' => $enReclamo
+                    ? "El equipo {$producto->imei} está en reclamo al proveedor: cierra el reclamo desde la compra."
+                    : 'La devolución al proveedor se registra al cerrar un reclamo, no como baja suelta.',
+            ]);
+        }
+
         $nota = trim((string) $nota) ?: null;
 
         // anotar() ANTES del save: el Observer escribe UNA fila con el evento,
@@ -70,6 +81,11 @@ class BajaService
 
         if (!$producto->estaDadoDeBaja()) {
             throw ValidationException::withMessages(['motivo' => "El equipo {$producto->imei} no está dado de baja."]);
+        }
+
+        // Devuelto al proveedor: ya no esta en el negocio y su costo quedo en 0.
+        if ($producto->motivo_baja === BajaMotivo::Devolucion->value) {
+            throw ValidationException::withMessages(['motivo' => "El equipo {$producto->imei} se devolvió al proveedor: esa baja no se revierte."]);
         }
 
         $producto->anotar('baja-revertida', 'Baja revertida: el equipo vuelve al inventario vigente.');

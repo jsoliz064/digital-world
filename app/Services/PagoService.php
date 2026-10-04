@@ -13,6 +13,7 @@ use App\Models\Reserva;
 use App\Models\User;
 use App\Models\Venta;
 use App\Models\VentaPago;
+use App\Services\Concerns\FilasDePago;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -42,6 +43,8 @@ use Illuminate\Validation\ValidationException;
  */
 class PagoService
 {
+    use FilasDePago;
+
     public function __construct(private EstadoProductoService $estados) {}
 
     /**
@@ -273,17 +276,6 @@ class PagoService
         ]);
     }
 
-    private function frase(array $pago, string $metodo): string
-    {
-        $texto = 'Bs ' . number_format((float) $pago['monto'], 2) . ' en ' . $metodo;
-
-        if (($pago['moneda'] ?? 'BOB') === Moneda::USD->value) {
-            $texto .= ' (USD ' . number_format((float) $pago['monto_moneda'], 2) . ' a ' . (float) $pago['tipo_cambio'] . ')';
-        }
-
-        return $texto;
-    }
-
     /** Los equipos de la venta a Credito o a Vendido, solo los que no lo esten ya. */
     private function moverEquipos(Venta $venta, ProductoEstado $destino): void
     {
@@ -305,75 +297,5 @@ class PagoService
                 ['venta_id' => $venta->id],
             );
         }
-    }
-
-    /**
-     * Las filas del formulario, limpias. Dos filas del mismo metodo y moneda
-     * son un solo pago: lo exige tambien el indice vp_clave_idem_venta_metodo_unico.
-     *
-     * @return array<int, array{metodo_pago_id:int, monto:float, moneda:string, monto_moneda:?float, tipo_cambio:?float, nota:?string}>
-     */
-    private function normalizar(array $pagos): array
-    {
-        $limpios = [];
-
-        foreach ($pagos as $pago) {
-            $moneda = Moneda::tryFrom((string) ($pago['moneda'] ?? 'BOB')) ?? Moneda::BOB;
-            $usd = round((float) ($pago['monto_moneda'] ?? 0), 2);
-            $tc = round((float) ($pago['tipo_cambio'] ?? 0), 4);
-            $monto = round((float) ($pago['monto'] ?? 0), 2);
-
-            // En USD manda dolares x tasa. Se respeta el monto en Bs que llega
-            // solo si difiere por redondeo: un cobro en USD repartido entre
-            // varias ventas convierte cada parte, y sin esto quedaba un centavo
-            // por encima del saldo.
-            if ($moneda === Moneda::USD && abs($monto - round($usd * $tc, 2)) > 0.05) {
-                $monto = round($usd * $tc, 2);
-            }
-
-            // Fila vacia del formulario.
-            if ($monto == 0.0 && ($moneda === Moneda::BOB || $usd == 0.0) && empty($pago['metodo_pago_id'])) {
-                continue;
-            }
-
-            if ($moneda === Moneda::USD && ($usd <= 0 || $tc <= 0)) {
-                throw ValidationException::withMessages(['pagos' => 'Un pago en dólares necesita el monto en USD y el tipo de cambio.']);
-            }
-
-            if ($monto <= 0) {
-                throw ValidationException::withMessages(['pagos' => 'Cada pago tiene que ser mayor a cero.']);
-            }
-
-            if (empty($pago['metodo_pago_id'])) {
-                throw ValidationException::withMessages(['pagos' => 'Elige el método de cada pago.']);
-            }
-
-            $metodo = (int) $pago['metodo_pago_id'];
-            $clave = $metodo . ':' . $moneda->value;
-            $nota = trim((string) ($pago['nota'] ?? ''));
-
-            if (isset($limpios[$clave])) {
-                // Mismo metodo y moneda: se suman (en USD, con la tasa de la
-                // primera fila; dos tasas distintas en una venta serian raras).
-                if ($moneda === Moneda::USD) {
-                    $limpios[$clave]['monto_moneda'] = round($limpios[$clave]['monto_moneda'] + $usd, 2);
-                    $limpios[$clave]['monto'] = round($limpios[$clave]['monto_moneda'] * $limpios[$clave]['tipo_cambio'], 2);
-                } else {
-                    $limpios[$clave]['monto'] = round($limpios[$clave]['monto'] + $monto, 2);
-                }
-                continue;
-            }
-
-            $limpios[$clave] = [
-                'metodo_pago_id' => $metodo,
-                'monto' => $monto,
-                'moneda' => $moneda->value,
-                'monto_moneda' => $moneda === Moneda::USD ? $usd : null,
-                'tipo_cambio' => $moneda === Moneda::USD ? $tc : null,
-                'nota' => $nota === '' ? null : mb_substr($nota, 0, 255),
-            ];
-        }
-
-        return array_values($limpios);
     }
 }

@@ -93,6 +93,13 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'compra.create'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.edit'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'compra.delete'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'compra.reclamo'])->syncRoles([$role1]);
+
+        //CUENTAS POR PAGAR Y FICHA DEL PROVEEDOR
+        Permission::firstOrCreate(['name' => 'cuenta-pagar.index'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'pago-proveedor.create'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'pago-proveedor.anular'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'proveedor.historial'])->syncRoles([$role1]);
 
         //VENTAS (una sola: equipos, repuestos y accesorios)
         Permission::firstOrCreate(['name' => 'venta.reporte'])->syncRoles([$role1]);

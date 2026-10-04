@@ -128,6 +128,12 @@ class Producto extends Model
         return $this->hasOne(VentaPago::class, 'producto_id');
     }
 
+    /** El reclamo abierto al proveedor, si esta en estado Reclamo. */
+    public function reclamoAbierto()
+    {
+        return $this->hasOne(CompraReclamo::class, 'producto_id')->where('estado', \App\Enums\ReclamoEstado::Abierto->value);
+    }
+
     public function reservas()
     {
         return $this->hasMany(Reserva::class, 'producto_id');

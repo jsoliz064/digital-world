@@ -26,6 +26,9 @@ enum ProductoEstado: string
     case Reserva = 'Reserva';
     case Credito = 'Credito';
     case Vendido = 'Vendido';
+    // Fallado de fabrica, reclamado al proveedor (ReclamoService): fuera de la
+    // venta, del catalogo y de la reparacion hasta que el reclamo se cierre.
+    case Reclamo = 'Reclamo';
 
     public function label(): string
     {
@@ -37,6 +40,7 @@ enum ProductoEstado: string
             self::Reserva => 'Reserva',
             self::Credito => 'Venta a crédito',
             self::Vendido => 'Vendido',
+            self::Reclamo => 'En reclamo',
         };
     }
 
@@ -68,7 +72,8 @@ enum ProductoEstado: string
 
     /**
      * Los que solo escribe un documento, nunca el selector de estado: Vendido y
-     * Credito una venta, Reserva una reserva (ReservaService). Elegirlos a mano
+     * Credito una venta, Reserva una reserva (ReservaService), Reclamo un
+     * reclamo al proveedor (ReclamoService). Elegirlos a mano
      * dejaria un equipo "vendido" sin venta o "reservado" sin cliente ni seña,
      * que es lo primero que caza el auditor.
      *
@@ -76,7 +81,7 @@ enum ProductoEstado: string
      */
     public static function soloPorDocumento(): array
     {
-        return [...self::vendidos(), self::Reserva->value];
+        return [...self::vendidos(), self::Reserva->value, self::Reclamo->value];
     }
 
     /**
@@ -88,7 +93,7 @@ enum ProductoEstado: string
      */
     public static function fueraDeCatalogo(): array
     {
-        return [self::Vendido->value, self::Credito->value, self::Roto->value, self::Reserva->value];
+        return [self::Vendido->value, self::Credito->value, self::Roto->value, self::Reserva->value, self::Reclamo->value];
     }
 
     /**
@@ -106,6 +111,7 @@ enum ProductoEstado: string
             self::Reserva => 'purple',
             self::Credito => 'teal',
             self::Vendido => '#ca8a04',
+            self::Reclamo => '#be123c',
         };
     }
 
@@ -145,6 +151,24 @@ enum ProductoEstado: string
             ->reject(fn($case) => in_array($case->value, self::soloPorDocumento(), true))
             ->filter(fn($case) => self::validatePermission($case->value))
             ->mapWithKeys(fn($case) => [$case->value => $case->label()]);
+    }
+
+    /**
+     * Si el boton de estado de las tablas abre el modal del equipo. Los que
+     * escribe un documento no tienen permiso de seleccion, pero el modal sirve
+     * para verlos y operar su documento: concretar o cancelar la reserva,
+     * cerrar el reclamo, anular la venta.
+     */
+    public static function puedeAbrir(?string $estado): bool
+    {
+        $user = Auth::user();
+
+        return match ($estado) {
+            self::Reserva->value => (bool) $user?->can('reserva.index'),
+            self::Reclamo->value => (bool) $user?->can('compra.reclamo'),
+            self::Vendido->value, self::Credito->value => (bool) $user?->can('venta.detalle'),
+            default => (bool) self::validatePermission($estado),
+        };
     }
 
     public static function validatePermission($estado)

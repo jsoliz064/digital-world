@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -27,6 +28,11 @@ return new class extends Migration
             // Total cacheado = SUM(compras_detalles.subtotal). Solo lo escribe
             // Compra::recalcularTotal().
             $table->decimal('total', 12, 2)->default(0);
+            // Cuentas por pagar (como ventas): lo pagado al proveedor vive en
+            // compras_pagos y lo cachea PagoProveedorService. `saldo` es GENERADA.
+            $table->decimal('pagado', 12, 2)->default(0);
+            $table->decimal('saldo', 12, 2)->storedAs('total - pagado');
+            $table->timestamp('pagada_at')->nullable();
             $table->foreignId('proveedor_id')->constrained('proveedores')->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             // Sucursal a la que entra lo comprado (cada linea la congela).
@@ -35,7 +41,10 @@ return new class extends Migration
 
             $table->unique('clave_idempotencia', 'compras_clave_idem_unico');
             $table->index('fecha', 'compras_fecha_index');
+            $table->index('saldo', 'compras_saldo_index');
         });
+
+        DB::statement('ALTER TABLE compras ADD CONSTRAINT compras_pagado_rango CHECK (pagado >= 0 AND pagado <= total)');
     }
 
     public function down(): void
