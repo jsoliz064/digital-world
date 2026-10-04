@@ -1,7 +1,11 @@
 <div>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
         <a href="{{ route('ventas') }}" class="text-sm text-brand-600 hover:underline">Volver a ventas</a>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
+            <a href="{{ route('ventas.nota', $venta->id) }}" target="_blank"
+                class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-300">
+                <i class="fa-solid fa-print mr-1"></i> Imprimir nota
+            </a>
             @if ($venta->aCredito())
                 @can('pago.create')
                     <x-button wire:click="cobrar">Cobrar</x-button>
@@ -71,13 +75,15 @@
             @forelse ($venta->pagos as $pago)
                 <li class="py-2 flex flex-wrap items-center justify-between gap-2" wire:key="pago-{{ $pago->id }}">
                     <span class="text-gray-700 dark:text-gray-200">
-                        {{ $pago->fecha->format('d/m/Y H:i') }} · {{ $pago->metodo?->nombre }}
+                        {{ $pago->fecha->format('d/m/Y H:i') }} · {{ $pago->descripcion() }}
                         <span class="text-xs text-gray-500">· {{ $pago->momento->label() }}{{ $pago->user ? ' · ' . $pago->user->name : '' }}{{ $pago->nota ? ' · ' . $pago->nota : '' }}</span>
                     </span>
                     <span class="flex items-center gap-3">
                         <span class="font-semibold">Bs {{ number_format((float) $pago->monto, 2) }}</span>
                         @can('pago.anular')
-                            <button type="button" wire:click="anularPago({{ $pago->id }})" class="text-xs text-red-600 hover:underline">Anular</button>
+                            @unless ($pago->esPermuta() || $pago->esSena())
+                                <button type="button" wire:click="anularPago({{ $pago->id }})" class="text-xs text-red-600 hover:underline">Anular</button>
+                            @endunless
                         @endcan
                     </span>
                 </li>

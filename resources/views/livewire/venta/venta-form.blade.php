@@ -7,6 +7,15 @@
             class="text-sm text-brand-600 hover:underline">Volver</a>
     </div>
 
+    @if ($reservaId)
+        <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">
+            <i class="fa-solid fa-bookmark"></i>
+            Venta de la <strong>reserva #{{ $reservaId }}</strong> de {{ $venta['cliente'] }}:
+            la seña de Bs {{ number_format((float) ($sena['monto'] ?? 0), 2) }} ({{ $sena['metodo'] ?? '' }}) se descuenta del total.
+        </div>
+        <x-input-error for="reserva" class="mb-2" />
+    @endif
+
     {{-- Cabecera --}}
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
@@ -87,6 +96,16 @@
                                     @endif
                                     @if (!$esEquipo)
                                         <span class="block text-xs text-gray-500">Stock aquí: {{ $linea['stock'] }}</span>
+                                        {{-- Con que equipo se vende: se agrupa bajo el en el detalle y en la nota. --}}
+                                        @if (count($equiposVenta) > 0)
+                                            <select wire:model.live="lineas.{{ $index }}.con_producto_id"
+                                                class="mt-1 block w-full max-w-xs text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                                <option value="">Suelto (sin equipo)</option>
+                                                @foreach ($equiposVenta as $pid => $etiqueta)
+                                                    <option value="{{ $pid }}">Con {{ $etiqueta }}</option>
+                                                @endforeach
+                                            </select>
+                                        @endif
                                     @endif
                                     @if ($esEquipo && ($linea['repuestos_elegibles'] ?? 0) > 0)
                                         @php($elegidos = count($repuestosVenta[$linea['id']] ?? []))
@@ -189,18 +208,39 @@
                 </ul>
                 <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Para cobrar o anular un pago, usa el detalle de la venta.</p>
             @else
+                {{-- Lo cobrado que no es una fila: la seña de la reserva y la permuta. --}}
+                @if (!empty($sena))
+                    <div class="mt-2 flex justify-between rounded-md bg-amber-50 px-3 py-2 text-sm dark:bg-amber-900/30">
+                        <span>Seña de la reserva #{{ $reservaId }} · {{ $sena['metodo'] ?? '' }}</span>
+                        <span class="font-semibold">Bs {{ number_format((float) $sena['monto'], 2) }}</span>
+                    </div>
+                @endif
+
                 <div class="mt-2 space-y-2">
                     @foreach ($pagos as $i => $pago)
-                        <div class="flex gap-2" wire:key="pago-{{ $i }}">
-                            <select wire:model.live="pagos.{{ $i }}.metodo_pago_id"
-                                class="block w-1/2 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm h-10">
+                        @php($enUsd = ($pago['moneda'] ?? 'BOB') === 'USD')
+                        <div class="flex flex-wrap items-center gap-2" wire:key="pago-{{ $i }}">
+                            <select wire:model.live="pagos.{{ $i }}.metodo_pago_id" class="block flex-1 min-w-[8rem] h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
                                 <option value="">Método...</option>
                                 @foreach ($metodos as $metodo)
                                     <option value="{{ $metodo->id }}">{{ $metodo->nombre }}</option>
                                 @endforeach
                             </select>
-                            <x-input type="number" min="0" step="0.01" class="w-1/2 text-right"
-                                wire:model.live.debounce.400ms="pagos.{{ $i }}.monto" onfocus="this.select()" />
+                            <select wire:model.live="pagos.{{ $i }}.moneda" class="block w-20 h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm" title="Moneda">
+                                <option value="BOB">Bs</option>
+                                <option value="USD">USD</option>
+                            </select>
+                            @if ($enUsd)
+                                <x-input type="number" min="0" step="0.01" class="w-28 text-right" placeholder="USD"
+                                    wire:model.live.debounce.400ms="pagos.{{ $i }}.monto_moneda" onfocus="this.select()" />
+                                <span class="text-xs text-gray-500">a</span>
+                                <x-input type="number" min="0" step="0.0001" class="w-24 text-right" title="Tipo de cambio"
+                                    wire:model.live.debounce.400ms="pagos.{{ $i }}.tipo_cambio" onfocus="this.select()" />
+                                <span class="text-sm whitespace-nowrap">= Bs {{ number_format($this->montoBsDe($pago), 2) }}</span>
+                            @else
+                                <x-input type="number" min="0" step="0.01" class="w-36 text-right"
+                                    wire:model.live.debounce.400ms="pagos.{{ $i }}.monto" onfocus="this.select()" />
+                            @endif
                             @if (count($pagos) > 1)
                                 <button type="button" wire:click="quitarPago({{ $i }})" class="text-red-600 hover:text-red-800 text-lg px-1" title="Quitar">&times;</button>
                             @endif
@@ -208,6 +248,80 @@
                     @endforeach
                 </div>
                 @error('pagos.*.monto') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+
+                {{-- Permuta: el equipo que entrega el cliente es un pago mas (PermutaService). --}}
+                <div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+                    @if (!$conPermuta)
+                        <button type="button" wire:click="abrirPermuta" class="text-sm text-brand-600 hover:underline">
+                            <i class="fa-solid fa-right-left"></i> Recibe un equipo en permuta
+                        </button>
+                    @else
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">Equipo recibido en permuta</h4>
+                            <button type="button" wire:click="quitarPermuta" class="text-xs text-red-600 hover:underline">Quitar</button>
+                        </div>
+                        <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                            <div>
+                                <x-label value="Modelo" />
+                                <select wire:model="permuta.producto_modelo_id" class="mt-1 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                    <option value="">Modelo...</option>
+                                    @foreach ($modelosPermuta as $m)
+                                        <option value="{{ $m->id }}">{{ $m->nombre }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="permuta.producto_modelo_id" />
+                            </div>
+                            <div>
+                                <x-label value="Almacenamiento" />
+                                <select wire:model="permuta.almacenamiento" class="mt-1 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                    @foreach ($almacenamientos as $a)
+                                        <option value="{{ $a->value }}">{{ $a->label() }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="permuta.almacenamiento" />
+                            </div>
+                            <div>
+                                <x-label value="Color" />
+                                <select wire:model="permuta.color" class="mt-1 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                    <option value="">Color...</option>
+                                    @foreach ($colores as $c)
+                                        <option value="{{ $c->value }}">{{ $c->value }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="permuta.color" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <x-label value="IMEI" />
+                                <div class="mt-1 flex gap-2" data-escaner>
+                                    <x-input type="text" class="w-full" wire:model="permuta.imei" inputmode="numeric" autocomplete="off"
+                                        placeholder="Escanee o escriba el IMEI" x-on:keydown.enter.prevent="" />
+                                    <x-boton-escaner modo="input" />
+                                </div>
+                                <x-input-error for="permuta.imei" />
+                            </div>
+                            <div>
+                                <x-label value="Grado" />
+                                <select wire:model="permuta.estado_grado" class="mt-1 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                    @foreach ($grados as $g)
+                                        <option value="{{ $g->value }}">{{ $g->label() }}</option>
+                                    @endforeach
+                                </select>
+                                <x-input-error for="permuta.estado_grado" />
+                            </div>
+                            <div>
+                                <x-label value="Batería (%)" />
+                                <x-input type="number" min="1" max="100" class="mt-1 w-full" wire:model="permuta.bateria_porcentaje" />
+                                <x-input-error for="permuta.bateria_porcentaje" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <x-label value="Valor que se le reconoce (Bs)" />
+                                <x-input type="number" min="0" step="0.01" class="mt-1 w-full" wire:model.live.debounce.400ms="permuta.valor" onfocus="this.select()" />
+                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Entra al inventario con este valor como costo, para ponerle precio y revenderlo.</p>
+                                <x-input-error for="permuta.valor" />
+                            </div>
+                        </div>
+                    @endif
+                </div>
             @endif
             <x-input-error for="pagos" class="mt-1" />
 

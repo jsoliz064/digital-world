@@ -30,7 +30,7 @@ class VentaDetalleTable extends DataTableComponent
         $this->setPrimaryKey('id')
             ->setSearchDisabled()
             ->setPaginationDisabled()
-            ->setAdditionalSelects(['ventas_detalles.producto_id', 'ventas_detalles.repuesto_id', 'ventas_detalles.accesorio_id', 'ventas_detalles.producto_reparacion_repuesto_id']);
+            ->setAdditionalSelects(['ventas_detalles.producto_id', 'ventas_detalles.repuesto_id', 'ventas_detalles.accesorio_id', 'ventas_detalles.producto_reparacion_repuesto_id', 'ventas_detalles.producto_asociado_id']);
     }
 
     public function columns(): array
@@ -40,7 +40,8 @@ class VentaDetalleTable extends DataTableComponent
                 ->format(fn($value) => LineaTipo::badge($value))
                 ->html(),
             Column::make('Detalle', 'id')
-                ->format(fn($value, $row) => e($row->descripcion())
+                ->format(fn($value, $row) => ($row->producto_asociado_id ? '<span class="text-gray-400">↳</span> ' : '') . e($row->descripcion())
+                    . ($row->producto_asociado_id ? '<span class="block text-xs text-gray-500">Con ' . e(trim(($row->productoAsociado?->modelo?->nombre ?? 'el equipo') . ' ' . $row->productoAsociado?->almacenamiento)) . '</span>' : '')
                     . ($row->stockYaDescontado() ? '<span class="block text-xs text-green-700">Cobro de taller (stock ya descontado en la reparación)</span>' : ''))
                 ->html(),
             Column::make('Cant.', 'cantidad'),
@@ -62,8 +63,11 @@ class VentaDetalleTable extends DataTableComponent
     public function builder(): Builder
     {
         return Linea::query()
-            ->with(['producto.modelo', 'repuesto', 'accesorio'])
+            ->with(['producto.modelo', 'repuesto', 'accesorio', 'productoAsociado.modelo'])
             ->where('ventas_detalles.venta_id', $this->ventaId)
+            // Cada equipo y, debajo, lo que se vendio con el; lo suelto al final.
+            ->orderByRaw('COALESCE(ventas_detalles.producto_id, ventas_detalles.producto_asociado_id) IS NULL')
+            ->orderByRaw('COALESCE(ventas_detalles.producto_id, ventas_detalles.producto_asociado_id)')
             ->orderByRaw('ventas_detalles.producto_id IS NULL')
             ->orderBy('ventas_detalles.id');
     }

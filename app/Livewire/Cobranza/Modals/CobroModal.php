@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Cobranza\Modals;
 
+use App\Enums\Moneda;
 use App\Enums\PagoMomento;
 use App\Models\Cliente;
 use App\Models\MetodoPago;
@@ -39,7 +40,10 @@ class CobroModal extends Component
     #[Locked]
     public ?int $ventaId = null;
 
+    /** En la moneda elegida: Bs, o dolares (con su tipo de cambio). */
     public $montoRecibido = '';
+    public string $moneda = 'BOB';
+    public $tipo_cambio = '';
     public $metodo_pago_id = '';
     public string $nota = '';
 
@@ -49,7 +53,8 @@ class CobroModal extends Component
     #[On('openCobroModal')]
     public function openModal($clienteId, $ventaId = null): void
     {
-        $this->reset(['montoRecibido', 'metodo_pago_id', 'nota', 'montos', 'ventaId']);
+        $this->reset(['montoRecibido', 'moneda', 'metodo_pago_id', 'nota', 'montos', 'ventaId']);
+        $this->tipo_cambio = PagoService::ultimoTipoCambio();
         $this->resetErrorBag();
 
         $this->clienteId = Cliente::findOrFail($clienteId)->id;
@@ -81,10 +86,28 @@ class CobroModal extends Component
         $this->repartir();
     }
 
-    /** Reparte el monto recibido de la primera a la ultima venta del orden. */
+    public function updatedMoneda(): void
+    {
+        $this->repartir();
+    }
+
+    public function updatedTipoCambio(): void
+    {
+        $this->repartir();
+    }
+
+    /** El monto recibido en Bs: en USD, dolares x tasa. */
+    public function recibidoBs(): float
+    {
+        $monto = (float) ($this->montoRecibido ?: 0);
+
+        return $this->moneda === Moneda::USD->value ? round($monto * (float) ($this->tipo_cambio ?: 0), 2) : round($monto, 2);
+    }
+
+    /** Reparte el monto recibido (en Bs) de la primera a la ultima venta del orden. */
     private function repartir(): void
     {
-        $resto = round(max(0, (float) ($this->montoRecibido ?: 0)), 2);
+        $resto = max(0, $this->recibidoBs());
         $this->montos = [];
 
         foreach ($this->ventasConSaldo() as $venta) {
@@ -104,13 +127,16 @@ class CobroModal extends Component
         abort_unless(Auth::user()?->can('pago.create'), 403);
 
         $this->validate([
-            'metodo_pago_id' => 'required|integer|exists:metodos_pago,id,activo,1',
+            'metodo_pago_id' => 'required|integer|exists:metodos_pago,id,activo,1,sistema,0',
+            'moneda' => 'required|in:BOB,USD',
+            'tipo_cambio' => 'required_if:moneda,USD|nullable|numeric|min:0.0001',
             'montos.*' => 'nullable|numeric|min:0',
             'nota' => 'nullable|string|max:255',
         ], [
             'metodo_pago_id.required' => 'Elige el método de pago.',
             'metodo_pago_id.exists' => 'Ese método no existe o está desactivado.',
             'montos.*.min' => 'Un monto no puede ser negativo.',
+            'tipo_cambio.required_if' => 'Escribe el tipo de cambio del dólar.',
         ]);
 
         // Solo ventas de ESTE cliente: las claves de $montos llegan del navegador.
@@ -137,9 +163,15 @@ class CobroModal extends Component
                 $servicio = app(PagoService::class);
 
                 foreach ($ids as $id) {
+                    $bs = round((float) $this->montos[$id], 2);
+                    $tc = (float) $this->tipo_cambio;
+                    $pago = $this->moneda === Moneda::USD->value
+                        ? ['moneda' => 'USD', 'monto_moneda' => round($bs / $tc, 2), 'tipo_cambio' => $tc, 'monto' => $bs]
+                        : ['moneda' => 'BOB', 'monto' => $bs];
+
                     $servicio->registrar(
                         Venta::findOrFail($id),
-                        [['metodo_pago_id' => (int) $this->metodo_pago_id, 'monto' => (float) $this->montos[$id], 'nota' => $this->nota]],
+                        [['metodo_pago_id' => (int) $this->metodo_pago_id, 'nota' => $this->nota] + $pago],
                         PagoMomento::Cobro,
                         Auth::user(),
                         $this->claveIdempotencia,
@@ -181,7 +213,7 @@ class CobroModal extends Component
     public function closeModal(): void
     {
         $this->openModal = false;
-        $this->reset(['clienteId', 'ventaId', 'montoRecibido', 'metodo_pago_id', 'nota', 'montos']);
+        $this->reset(['clienteId', 'ventaId', 'montoRecibido', 'moneda', 'tipo_cambio', 'metodo_pago_id', 'nota', 'montos']);
     }
 
     public function render()

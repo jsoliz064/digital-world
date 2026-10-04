@@ -3,11 +3,19 @@
 namespace App\Livewire\Venta;
 
 use App\Enums\LineaTipo;
+use App\Enums\Moneda;
+use App\Enums\ProductoAlmacenamiento;
+use App\Enums\ProductoColor;
+use App\Enums\ProductoEstado;
+use App\Enums\ProductoGrado;
 use App\Models\Cliente;
 use App\Models\MetodoPago;
 use App\Models\Producto;
+use App\Models\ProductoModelo;
+use App\Models\Reserva;
 use App\Models\Sucursal;
 use App\Models\Venta;
+use App\Services\PagoService;
 use App\Services\RepuestosDeReparacionService;
 use App\Services\VentaService;
 use App\Traits\CarritoBuscadorTrait;
@@ -35,6 +43,11 @@ use Livewire\Component;
  * cubre el total, la venta queda a credito y exige cliente con ficha; lo
  * decide PagoService. Al editar, los pagos se ven en solo lectura: los cobros
  * nuevos van por el modal de cobro (CobroModal).
+ *
+ * Una fila de pago puede ser en USD (dolares y tipo de cambio). La venta que
+ * llega de una reserva (?reserva=) trae el equipo, el cliente y la seña, que
+ * entra como pago. La permuta (equipo recibido) es otro pago, que se carga en
+ * su propio bloque (PermutaService).
  */
 class VentaForm extends Component
 {
@@ -64,8 +77,23 @@ class VentaForm extends Component
     /** Cobros de taller ya registrados en la venta (edicion, solo lectura). */
     public array $cobrosExistentes = [];
 
-    /** Lo que se cobra al vender: [['metodo_pago_id', 'monto'], ...]. Solo al crear. */
+    /**
+     * Lo que se cobra al vender: [['metodo_pago_id', 'moneda', 'monto' (Bs),
+     * 'monto_moneda' (USD), 'tipo_cambio'], ...]. Solo al crear.
+     */
     public array $pagos = [];
+
+    /** La reserva que se concreta (?reserva=). #[Locked]: decide que equipo y que seña. */
+    #[Locked]
+    public ?int $reservaId = null;
+
+    /** La seña de esa reserva, para mostrarla y contarla como cobrada: ['monto','metodo']. */
+    #[Locked]
+    public array $sena = [];
+
+    /** El equipo recibido en permuta (vacio si no hay). Lo valida PermutaService. */
+    public array $permuta = [];
+    public bool $conPermuta = false;
 
     /**
      * Mientras nadie toque los montos, el unico pago sigue al total: la venta
@@ -91,7 +119,23 @@ class VentaForm extends Component
         // misma y no crea una segunda venta.
         $this->nuevaClaveIdempotencia();
         $this->venta = ['sucursal_id' => null, 'cliente_id' => null, 'cliente' => null, 'descuento' => 0, 'mano_obra' => 0];
-        $this->pagos = [['metodo_pago_id' => MetodoPago::activos()->value('id'), 'monto' => 0]];
+        $this->pagos = [$this->filaPago(MetodoPago::activos()->value('id'))];
+
+        // Concretar una reserva: el equipo reservado, su cliente (fijo) y la seña.
+        $reservaId = (int) request()->query('reserva', 0);
+        if ($reservaId && $reserva = Reserva::activas()->with(['producto.modelo', 'cliente', 'metodo'])->find($reservaId)) {
+            $sucursal = Sucursal::activas()->find($reserva->producto?->sucursal_id);
+            if ($sucursal && $reserva->producto?->estado === ProductoEstado::Reserva->value) {
+                $this->reservaId = $reserva->id;
+                $this->sena = ['monto' => (float) $reserva->sena, 'metodo' => $reserva->metodo?->nombre];
+                $this->venta['sucursal_id'] = $sucursal->id;
+                $this->venta['cliente_id'] = $reserva->cliente_id;
+                $this->venta['cliente'] = $reserva->cliente?->nombre;
+                $this->agregarLineaEquipo($reserva->producto);
+            }
+
+            return;
+        }
 
         // "Vender" desde la ficha del equipo: llega con ?producto= y la sucursal
         // del equipo ya puesta.
@@ -107,11 +151,11 @@ class VentaForm extends Component
 
     private function cargarVenta(int $ventaId): void
     {
-        $venta = Venta::with(['detalles.producto.modelo', 'detalles.repuesto', 'detalles.accesorio', 'pagos.metodo'])->findOrFail($ventaId);
+        $venta = Venta::with(['detalles.producto.modelo', 'detalles.repuesto', 'detalles.accesorio', 'pagos.metodo', 'pagos.producto.modelo'])->findOrFail($ventaId);
 
         $this->pagosExistentes = $venta->pagos->sortBy('id')->map(fn($p) => [
             'fecha' => $p->fecha->format('d/m/Y H:i'),
-            'metodo' => $p->metodo?->nombre,
+            'metodo' => $p->descripcion(),
             'monto' => (float) $p->monto,
         ])->values()->all();
 
@@ -147,6 +191,7 @@ class VentaForm extends Component
                 // En edicion, lo que ya tiene la linea tambien esta disponible.
                 'stock' => $d->producto_id ? 1 : $articulo->stockEn($venta->sucursal_id) + (int) $d->cantidad,
                 'repuestos_elegibles' => $d->producto_id ? app(RepuestosDeReparacionService::class)->contarElegibles($articulo->id) : 0,
+                'con_producto_id' => $d->producto_asociado_id,
             ];
         }
     }
@@ -161,6 +206,13 @@ class VentaForm extends Component
     /** cliente_id es el enlace; `cliente` el nombre CONGELADO en el documento. */
     protected function fijarCliente(?Cliente $cliente): void
     {
+        // La venta de una reserva es para SU cliente.
+        if ($this->reservaId) {
+            toastr()->info('La venta de una reserva es para el cliente que reservó.');
+
+            return;
+        }
+
         $this->venta['cliente_id'] = $cliente?->id;
         $this->venta['cliente'] = $cliente?->nombre;
     }
@@ -206,24 +258,36 @@ class VentaForm extends Component
                 return;
             }
 
-            array_unshift($this->lineas, [
-                'tipo' => $tipo,
-                'id' => $producto->id,
-                'descripcion' => trim(($producto->modelo?->nombre ?? 'Equipo') . ' ' . $producto->almacenamiento . ' ' . $producto->color),
-                'codigo' => $producto->imei,
-                'cantidad' => 1,
-                'precio' => (float) ($this->tipo_precio === 'Vendedor' ? $producto->precio_vendedor : $producto->precio_cliente),
-                'descuento' => 0,
-                'garantia_meses' => 3,
-                'stock' => 1,
-                // Se cuenta una vez al agregar: pintarlo por render seria una
-                // consulta por fila en cada peticion.
-                'repuestos_elegibles' => app(RepuestosDeReparacionService::class)->contarElegibles($producto->id),
-            ]);
+            $this->agregarLineaEquipo($producto);
 
             return;
         }
 
+        $this->agregarLineaArticulo($lineaTipo, $id, $sucursalId);
+    }
+
+    private function agregarLineaEquipo(Producto $producto): void
+    {
+        array_unshift($this->lineas, [
+            'tipo' => LineaTipo::Producto->value,
+            'id' => $producto->id,
+            'descripcion' => trim(($producto->modelo?->nombre ?? 'Equipo') . ' ' . $producto->almacenamiento . ' ' . $producto->color),
+            'codigo' => $producto->imei,
+            'cantidad' => 1,
+            'precio' => (float) ($this->tipo_precio === 'Vendedor' ? $producto->precio_vendedor : $producto->precio_cliente),
+            'descuento' => 0,
+            'garantia_meses' => 3,
+            'stock' => 1,
+            // Se cuenta una vez al agregar: pintarlo por render seria una
+            // consulta por fila en cada peticion.
+            'repuestos_elegibles' => app(RepuestosDeReparacionService::class)->contarElegibles($producto->id),
+            'con_producto_id' => null,
+        ]);
+    }
+
+    private function agregarLineaArticulo(LineaTipo $lineaTipo, int $id, ?int $sucursalId): void
+    {
+        $tipo = $lineaTipo->value;
         $articulo = $lineaTipo->articulo()->buscar($id);
 
         if (!$articulo) {
@@ -249,7 +313,17 @@ class VentaForm extends Component
             'garantia_meses' => null,
             'stock' => $stock,
             'repuestos_elegibles' => 0,
+            // Con un solo equipo en la venta, lo normal es que vaya con el.
+            'con_producto_id' => count($equipos = $this->equiposEnLaVenta()) === 1 ? array_key_first($equipos) : null,
         ]);
+    }
+
+    /** [producto_id => descripcion] de los equipos de la venta, para "Con el equipo". */
+    public function equiposEnLaVenta(): array
+    {
+        return collect($this->lineas)->where('tipo', LineaTipo::Producto->value)
+            ->mapWithKeys(fn($l) => [$l['id'] => $l['descripcion'] . ' · ' . substr((string) $l['codigo'], -5)])
+            ->all();
     }
 
     /** Lo que llega del catalogo de equipos (ProductoSelectorModal). */
@@ -283,9 +357,23 @@ class VentaForm extends Component
             return;
         }
 
-        // Si el equipo sale, sus cobros de taller se van con el.
+        // Si el equipo sale, sus cobros de taller se van con el y sus
+        // accesorios quedan sueltos.
         if ($this->lineas[$index]['tipo'] === LineaTipo::Producto->value) {
-            unset($this->repuestosVenta[$this->lineas[$index]['id']]);
+            $productoId = $this->lineas[$index]['id'];
+
+            if ($this->reservaId && $productoId === (int) Reserva::whereKey($this->reservaId)->value('producto_id')) {
+                toastr()->warning('El equipo reservado no se quita: es la venta de la reserva.');
+
+                return;
+            }
+
+            unset($this->repuestosVenta[$productoId]);
+            foreach ($this->lineas as $i => $l) {
+                if ((int) ($l['con_producto_id'] ?? 0) === (int) $productoId) {
+                    $this->lineas[$i]['con_producto_id'] = null;
+                }
+            }
         }
 
         unset($this->lineas[$index]);
@@ -370,10 +458,55 @@ class VentaForm extends Component
 
     // ------------------------------------------------------- cobro
 
+    private function filaPago($metodoId = null, float $monto = 0): array
+    {
+        return [
+            'metodo_pago_id' => $metodoId,
+            'moneda' => Moneda::BOB->value,
+            'monto' => $monto,
+            'monto_moneda' => '',
+            'tipo_cambio' => PagoService::ultimoTipoCambio(),
+        ];
+    }
+
     public function agregarPago(): void
     {
         $this->montoTocado = true;
-        $this->pagos[] = ['metodo_pago_id' => null, 'monto' => max(0, $this->saldoPrevisto())];
+        $this->pagos[] = $this->filaPago(null, max(0, $this->saldoPrevisto()));
+    }
+
+    /** El equivalente en Bs de una fila (en USD, dolares x tasa). */
+    public function montoBsDe(array $pago): float
+    {
+        if (($pago['moneda'] ?? 'BOB') === Moneda::USD->value) {
+            return round((float) ($pago['monto_moneda'] ?: 0) * (float) ($pago['tipo_cambio'] ?: 0), 2);
+        }
+
+        return round((float) ($pago['monto'] ?: 0), 2);
+    }
+
+    // ------------------------------------------------------- permuta
+
+    public function abrirPermuta(): void
+    {
+        $this->conPermuta = true;
+        $this->montoTocado = false;
+        $this->permuta = [
+            'producto_modelo_id' => '', 'imei' => '', 'almacenamiento' => '128GB', 'color' => '',
+            'estado_grado' => ProductoGrado::Dos->value, 'bateria_porcentaje' => 85, 'valor' => '',
+        ];
+    }
+
+    public function quitarPermuta(): void
+    {
+        $this->conPermuta = false;
+        $this->permuta = [];
+        $this->resetErrorBag();
+    }
+
+    public function valorPermuta(): float
+    {
+        return $this->conPermuta ? round((float) ($this->permuta['valor'] ?? 0 ?: 0), 2) : 0.0;
     }
 
     public function quitarPago(int $index): void
@@ -385,9 +518,15 @@ class VentaForm extends Component
 
     public function updatedPagos($valor, $clave): void
     {
-        if (str_ends_with((string) $clave, '.monto')) {
+        if (str_ends_with((string) $clave, '.monto') || str_ends_with((string) $clave, '.monto_moneda') || str_ends_with((string) $clave, '.moneda')) {
             $this->montoTocado = true;
         }
+    }
+
+    /** La seña y la permuta: lo cobrado que no es una fila de pago. */
+    public function cobradoFijo(): float
+    {
+        return round((float) ($this->sena['monto'] ?? 0) + $this->valorPermuta(), 2);
     }
 
     public function cobradoPrevisto(): float
@@ -396,7 +535,7 @@ class VentaForm extends Component
             return round(array_sum(array_column($this->pagosExistentes, 'monto')), 2);
         }
 
-        return round(array_sum(array_map(fn($p) => (float) ($p['monto'] ?: 0), $this->pagos)), 2);
+        return round(array_sum(array_map(fn($p) => $this->montoBsDe($p), $this->pagos)) + $this->cobradoFijo(), 2);
     }
 
     public function saldoPrevisto(): float
@@ -404,11 +543,11 @@ class VentaForm extends Component
         return round($this->totales()['total'] - $this->cobradoPrevisto(), 2);
     }
 
-    /** El unico pago sigue al total mientras nadie lo toque. */
+    /** El unico pago (en Bs) sigue a lo que falta mientras nadie lo toque. */
     private function seguirTotal(): void
     {
-        if (!$this->esEdicion() && !$this->montoTocado && count($this->pagos) === 1) {
-            $this->pagos[0]['monto'] = max(0, $this->totales()['total']);
+        if (!$this->esEdicion() && !$this->montoTocado && count($this->pagos) === 1 && ($this->pagos[0]['moneda'] ?? 'BOB') === Moneda::BOB->value) {
+            $this->pagos[0]['monto'] = max(0, round($this->totales()['total'] - $this->cobradoFijo(), 2));
         }
     }
 
@@ -452,11 +591,13 @@ class VentaForm extends Component
             'cliente' => $this->venta['cliente'] ?? null,
             'descuento' => (float) ($this->venta['descuento'] ?: 0),
             'mano_obra' => (float) ($this->venta['mano_obra'] ?: 0),
+            'reserva_id' => $this->reservaId,
         ];
         $lineas = array_map(fn($l) => [
             'tipo' => $l['tipo'], 'id' => $l['id'], 'cantidad' => (int) $l['cantidad'],
             'precio' => (float) $l['precio'], 'descuento' => (float) ($l['descuento'] ?: 0),
             'garantia_meses' => $l['garantia_meses'] !== '' ? $l['garantia_meses'] : null,
+            'con_producto_id' => $l['con_producto_id'] ?? null,
         ], $this->lineas);
 
         $servicio = app(VentaService::class);
@@ -481,7 +622,10 @@ class VentaForm extends Component
         }
 
         try {
-            $venta = DB::transaction(fn() => $servicio->registrar($cabecera, $lineas, $this->repuestosVenta, $this->pagos, Auth::user(), $this->claveIdempotencia));
+            $venta = DB::transaction(fn() => $servicio->registrar(
+                $cabecera, $lineas, $this->repuestosVenta, $this->pagos, Auth::user(), $this->claveIdempotencia,
+                $this->conPermuta ? $this->permuta : null,
+            ));
         } catch (QueryException $e) {
             // Dos peticiones a la vez con la misma clave: la otra commiteo y la
             // nuestra ya revirtio entera, asi que releer es seguro.
@@ -519,6 +663,11 @@ class VentaForm extends Component
                 : Sucursal::activas()->orderBy('nombre')->get(),
             'metodos' => $this->esEdicion() ? collect() : MetodoPago::activos()->get(),
             'deudaCliente' => $deudaCliente,
+            'equiposVenta' => $this->equiposEnLaVenta(),
+            'modelosPermuta' => $this->conPermuta ? ProductoModelo::orderBy('nombre')->get(['id', 'nombre']) : collect(),
+            'almacenamientos' => ProductoAlmacenamiento::cases(),
+            'colores' => ProductoColor::cases(),
+            'grados' => ProductoGrado::cases(),
         ]);
     }
 }

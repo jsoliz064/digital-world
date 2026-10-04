@@ -14,9 +14,24 @@
 
                     <div class="m-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <x-label value="Monto recibido (Bs)" />
-                            <x-input type="number" min="0" step="0.01" class="mt-1 w-full" wire:model.live.debounce.400ms="montoRecibido"
-                                onfocus="this.select()" placeholder="Se reparte de la venta más antigua a la más nueva" />
+                            <x-label value="Monto recibido" />
+                            <div class="mt-1 flex gap-2">
+                                <select wire:model.live="moneda"
+                                    class="block w-20 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm h-10">
+                                    <option value="BOB">Bs</option>
+                                    <option value="USD">USD</option>
+                                </select>
+                                <x-input type="number" min="0" step="0.01" class="w-full" wire:model.live.debounce.400ms="montoRecibido"
+                                    onfocus="this.select()" placeholder="Se reparte de la más antigua a la más nueva" />
+                            </div>
+                            @if ($moneda === 'USD')
+                                <div class="mt-2 flex items-center gap-2 text-sm">
+                                    <span>Tipo de cambio</span>
+                                    <x-input type="number" min="0" step="0.0001" class="w-28" wire:model.live.debounce.400ms="tipo_cambio" />
+                                    <span>= Bs {{ number_format($this->recibidoBs(), 2) }}</span>
+                                </div>
+                                <x-input-error for="tipo_cambio" class="mt-1" />
+                            @endif
                         </div>
                         <div>
                             <x-label value="Método" />
