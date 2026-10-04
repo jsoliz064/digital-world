@@ -92,6 +92,7 @@ class ProductoEstadoModal extends Component
             'sucursales' => $this->openModal ? Sucursal::activas()->orderBy('nombre')->get() : collect(),
             'lineaVenta' => $this->openModal && $this->producto ? $this->producto->ventaDetalle()->with('venta.fichaCliente')->first() : null,
             'reserva' => $this->openModal && $this->esReservado() ? $this->producto->reservaActiva()->with(['cliente', 'metodo'])->first() : null,
+            'reclamo' => $this->openModal && $this->enReclamo() ? $this->producto->reclamoAbierto()->with('compra.proveedor')->first() : null,
         ]);
     }
 
@@ -130,6 +131,11 @@ class ProductoEstadoModal extends Component
     public function esVendido(): bool
     {
         return $this->producto && in_array($this->producto->estado, ProductoEstado::vendidos(), true);
+    }
+
+    public function enReclamo(): bool
+    {
+        return $this->producto && $this->producto->estado === ProductoEstado::Reclamo->value;
     }
 
     public function esReservado(): bool
@@ -376,6 +382,11 @@ class ProductoEstadoModal extends Component
         // Sacarlo de Reserva a mano dejaria la reserva activa con su seña.
         if ($this->estadoOrigen === ProductoEstado::Reserva->value) {
             throw ValidationException::withMessages(['estado' => 'El equipo está reservado: concreta la venta o cancela la reserva.']);
+        }
+
+        // Y de Reclamo, el reclamo abierto sin cerrar.
+        if ($this->estadoOrigen === ProductoEstado::Reclamo->value) {
+            throw ValidationException::withMessages(['estado' => 'El equipo está en reclamo al proveedor: cierra el reclamo desde la compra.']);
         }
 
         $stock = app(StockService::class);

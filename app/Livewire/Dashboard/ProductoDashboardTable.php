@@ -42,7 +42,7 @@ class ProductoDashboardTable extends DataTableComponent
                 ->format(function ($value, $row) {
                     $color = ProductoEstado::colorDe($value);
 
-                    $canChangeState = ProductoEstado::validatePermission($value);
+                    $canChangeState = ProductoEstado::puedeAbrir($value);
 
                     // El color del tecnico pesa mas que el del estado: si el
                     // equipo esta en su banco, se quiere ver de quien es.

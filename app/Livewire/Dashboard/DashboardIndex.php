@@ -22,6 +22,7 @@ class DashboardIndex extends Component
     public $productos_credito = 0;
     public $por_cobrar = 0;
     public $ventas_credito = 0;
+    public $por_pagar = 0;
 
     public function mount()
     {
@@ -34,6 +35,7 @@ class DashboardIndex extends Component
         $this->productos_credito = Producto::vigentes()->where('estado', ProductoEstado::Credito->value)->count();
         $this->por_cobrar = (float) Venta::conSaldo()->sum('saldo');
         $this->ventas_credito = Venta::conSaldo()->count();
+        $this->por_pagar = (float) \App\Models\Compra::conSaldo()->sum('saldo');
 
         $dia = [now()->startOfDay(), now()->endOfDay()];
         $mes = [now()->startOfMonth(), now()->endOfMonth()];

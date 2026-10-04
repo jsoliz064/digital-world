@@ -47,7 +47,7 @@ class ProductoBajaModal extends Component
         abort_unless(Auth::user()->can('producto.baja'), 403);
 
         $this->validate([
-            'motivo' => ['required', Rule::in(BajaMotivo::values())],
+            'motivo' => ['required', Rule::in(BajaMotivo::valoresManuales())],
             'nota' => 'nullable|string|max:255',
         ]);
 

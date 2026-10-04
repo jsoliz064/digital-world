@@ -10,6 +10,15 @@
                 Editar
             </button>
         @endcan
+        {{-- Fallado de fabrica: se reclama al proveedor (ReclamoService). --}}
+        @if (in_array($row->estado, ['Inventario', 'Roto'], true) && !$row->dado_de_baja_at)
+            @can('compra.reclamo')
+                <button wire:click="openReclamoAbrirModal({{ $row->id }})"
+                    class="block px-4 py-2 text-sm text-rose-700 hover:bg-rose-50 w-full text-left">
+                    Reclamar al proveedor
+                </button>
+            @endcan
+        @endif
         @can('producto.delete')
             <button wire:click="openCompraLoteProductoDestroyModal({{ $row->id }})"
                 class="block px-4 py-2 text-sm text-red-600 hover:bg-red-100 w-full text-left">

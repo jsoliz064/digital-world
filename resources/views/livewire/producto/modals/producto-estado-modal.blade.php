@@ -41,6 +41,19 @@
                             <x-danger-button wire:click="cancelarVenta()" wire:loading.attr="disabled">Anular la venta de este equipo</x-danger-button>
                         </div>
                     @endcan
+                @elseif ($this->enReclamo())
+                    {{-- Reclamo: lo escribe ReclamoService. Se cierra desde la compra. --}}
+                    <div class="m-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-700 dark:bg-rose-900/40 dark:text-rose-100">
+                        @if ($reclamo)
+                            <p class="font-semibold">En reclamo a {{ $reclamo->compra?->proveedor?->nombre }}</p>
+                            <p class="mt-1">«{{ $reclamo->motivo }}» · desde el {{ $reclamo->created_at->format('d/m/Y') }}</p>
+                            @can('compra.detalle')
+                                <a href="{{ route('compras.detalle', $reclamo->compra_id) }}" class="mt-1 inline-block underline">Ir a la compra #{{ $reclamo->compra_id }} para cerrar el reclamo</a>
+                            @endcan
+                        @else
+                            <p class="font-semibold">En reclamo, pero sin reclamo abierto registrado.</p>
+                        @endif
+                    </div>
                 @elseif ($this->esReservado())
                     {{-- Reserva: la escribe ReservaService. Aqui se ve, se concreta o se cancela. --}}
                     <div class="m-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">
@@ -310,7 +323,7 @@
                     Cerrar
                 </x-secondary-button>
 
-                @unless ($this->esVendido() || $this->esReservado())
+                @unless ($this->esVendido() || $this->esReservado() || $this->enReclamo())
                     <x-primary-button class="ml-2" wire:click="update()" wire:loading.attr="disabled">
                         Actualizar
                     </x-primary-button>

@@ -95,6 +95,11 @@
                             Por cobrar: Bs {{ number_format($por_cobrar, 2) }} ({{ $ventas_credito }} venta(s))
                         </a>
                     @endcan
+                    @can('cuenta-pagar.index')
+                        <a href="{{ route('cuentas-por-pagar') }}" class="block text-xs underline opacity-90">
+                            Por pagar: Bs {{ number_format($por_pagar, 2) }}
+                        </a>
+                    @endcan
                 </div>
             </div>
 

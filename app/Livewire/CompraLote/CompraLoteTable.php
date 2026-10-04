@@ -30,6 +30,7 @@ class CompraLoteTable extends DataTableComponent
     {
         $this->setPrimaryKey('id')
             ->setSearchPlaceholder('Buscar por modelo, IMEI, SKU o código de barras...');
+        $this->setAdditionalSelects(['productos.dado_de_baja_at', 'productos.motivo_baja']);
     }
 
     public function filters(): array
@@ -110,7 +111,7 @@ class CompraLoteTable extends DataTableComponent
                 ->format(function ($value, $row) {
                     $color = ProductoEstado::colorDe($value);
 
-                    $canChangeState = ProductoEstado::validatePermission($value);
+                    $canChangeState = ProductoEstado::puedeAbrir($value);
 
                     // El color del tecnico pesa mas que el del estado: si el
                     // equipo esta en su banco, se quiere ver de quien es.
@@ -124,6 +125,7 @@ class CompraLoteTable extends DataTableComponent
                         'color' => $color,
                         'id' => $row->id,
                         'canChangeState' => $canChangeState,
+                        'dadoDeBaja' => $row->dado_de_baja_at !== null,
                     ]);
                 }),
             Column::make("Grado", "estado_grado")
@@ -156,8 +158,16 @@ class CompraLoteTable extends DataTableComponent
         ];
     }
 
+    public function openReclamoAbrirModal($id): void
+    {
+        abort_unless(auth()->user()->can('compra.reclamo'), 403);
+
+        $this->dispatch('openReclamoAbrirModal', (int) $id);
+    }
+
     #[On('refreshProductoTable')]
     #[On('refreshCompraDetalle')]
+    #[On('reclamosActualizados')]
     public function refreshCompraLoteTable()
     {
         $this->builder();
