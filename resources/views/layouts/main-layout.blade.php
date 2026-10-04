@@ -641,6 +641,30 @@
                             </li>
                         @endcan
 
+                        @can('comision.index')
+                            <li>
+                                <a href="{{ route('comisiones') }}"
+                                    class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
+                                    <span class="inline-flex justify-center items-center ml-4">
+                                        <i class="fa-solid fa-percent text-lg w-5 h-5 flex items-center justify-center"></i>
+                                    </span>
+                                    <span class="ml-2 text-sm tracking-wide truncate">Comisiones</span>
+                                </a>
+                            </li>
+                        @endcan
+
+                        @can('comision.propias')
+                            <li>
+                                <a href="{{ route('mis-comisiones') }}"
+                                    class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
+                                    <span class="inline-flex justify-center items-center ml-4">
+                                        <i class="fa-solid fa-wallet text-lg w-5 h-5 flex items-center justify-center"></i>
+                                    </span>
+                                    <span class="ml-2 text-sm tracking-wide truncate">Mis comisiones</span>
+                                </a>
+                            </li>
+                        @endcan
+
 
                         <li>
                             <a href="{{ route('catalogo') }}" target="_blank"

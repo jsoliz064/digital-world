@@ -3,6 +3,7 @@
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\CobranzaController;
+use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CuentaPagarController;
 use App\Http\Controllers\DashboardController;
@@ -70,6 +71,16 @@ Route::middleware([
     Route::get('cuentas-por-pagar', [CuentaPagarController::class, 'index'])
         ->middleware('can:cuenta-pagar.index')
         ->name('cuentas-por-pagar');
+
+    // Comisiones de vendedores y tecnicos, y su liquidacion (docs/05).
+    Route::get('comisiones', [ComisionController::class, 'index'])
+        ->middleware('can:comision.index')
+        ->name('comisiones');
+
+    // Lo propio: el vendedor o el tecnico (por su usuario) ve lo suyo.
+    Route::get('mis-comisiones', [ComisionController::class, 'mias'])
+        ->middleware('can:comision.propias')
+        ->name('mis-comisiones');
 
     Route::get('sucursales', [SucursalController::class, 'index'])
         ->middleware('can:sucursal.index')
