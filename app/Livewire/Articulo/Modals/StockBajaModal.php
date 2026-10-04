@@ -37,7 +37,7 @@ class StockBajaModal extends Component
         return [
             'sucursal_id' => 'required|integer|exists:sucursales,id',
             'cantidad' => 'required|integer|min:1',
-            'motivo' => ['required', Rule::in(BajaMotivo::values())],
+            'motivo' => ['required', Rule::in(BajaMotivo::valoresManuales())],
             'nota' => 'nullable|string|max:255',
         ];
     }
