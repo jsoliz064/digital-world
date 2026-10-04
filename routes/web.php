@@ -12,6 +12,7 @@ use App\Http\Controllers\ProductoMarcaController;
 use App\Http\Controllers\ProductoModeloController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\ReporteController;
+use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RepuestoController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SucursalController;
@@ -70,6 +71,11 @@ Route::middleware([
     Route::get('cobranzas', [CobranzaController::class, 'index'])
         ->middleware('can:cobranza.index')
         ->name('cobranzas');
+
+    // Equipos apartados con seña (docs/03).
+    Route::get('reservas', [ReservaController::class, 'index'])
+        ->middleware('can:reserva.index')
+        ->name('reservas');
 
     Route::group(['prefix' => 'clientes'], function () {
         // Con can: desde el principio: el @can del blade solo esconde el enlace
@@ -189,6 +195,12 @@ Route::middleware([
             ->whereNumber('id')
             ->middleware('can:venta.detalle')
             ->name('ventas.detalles');
+
+        // La nota de venta para la impresora termica de 80 mm.
+        Route::get('{id}/nota', [VentaController::class, 'nota'])
+            ->whereNumber('id')
+            ->middleware('can:venta.detalle')
+            ->name('ventas.nota');
 
     });
 
