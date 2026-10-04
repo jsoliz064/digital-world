@@ -4,6 +4,7 @@ namespace App\Livewire\Venta;
 
 use App\Enums\LineaTipo;
 use App\Models\Cliente;
+use App\Models\MetodoPago;
 use App\Models\Producto;
 use App\Models\Sucursal;
 use App\Models\Venta;
@@ -29,6 +30,11 @@ use Livewire\Component;
  *
  * Los importes que se ven aqui son una vista previa: el costo y los totales
  * reales los calcula el servicio releyendo la base.
+ *
+ * EL COBRO: al crear, lo cobrado va en $pagos (uno o varios metodos). Si no
+ * cubre el total, la venta queda a credito y exige cliente con ficha; lo
+ * decide PagoService. Al editar, los pagos se ven en solo lectura: los cobros
+ * nuevos van por el modal de cobro (CobroModal).
  */
 class VentaForm extends Component
 {
@@ -58,6 +64,18 @@ class VentaForm extends Component
     /** Cobros de taller ya registrados en la venta (edicion, solo lectura). */
     public array $cobrosExistentes = [];
 
+    /** Lo que se cobra al vender: [['metodo_pago_id', 'monto'], ...]. Solo al crear. */
+    public array $pagos = [];
+
+    /**
+     * Mientras nadie toque los montos, el unico pago sigue al total: la venta
+     * de contado en efectivo no pide escribir nada. Al tocarlo, se respeta.
+     */
+    public bool $montoTocado = false;
+
+    /** Pagos ya registrados (edicion, solo lectura): [['fecha','metodo','monto'], ...]. */
+    public array $pagosExistentes = [];
+
     public function mount(?int $ventaId = null): void
     {
         if ($ventaId) {
@@ -73,6 +91,7 @@ class VentaForm extends Component
         // misma y no crea una segunda venta.
         $this->nuevaClaveIdempotencia();
         $this->venta = ['sucursal_id' => null, 'cliente_id' => null, 'cliente' => null, 'descuento' => 0, 'mano_obra' => 0];
+        $this->pagos = [['metodo_pago_id' => MetodoPago::activos()->value('id'), 'monto' => 0]];
 
         // "Vender" desde la ficha del equipo: llega con ?producto= y la sucursal
         // del equipo ya puesta.
@@ -88,7 +107,13 @@ class VentaForm extends Component
 
     private function cargarVenta(int $ventaId): void
     {
-        $venta = Venta::with(['detalles.producto.modelo', 'detalles.repuesto', 'detalles.accesorio'])->findOrFail($ventaId);
+        $venta = Venta::with(['detalles.producto.modelo', 'detalles.repuesto', 'detalles.accesorio', 'pagos.metodo'])->findOrFail($ventaId);
+
+        $this->pagosExistentes = $venta->pagos->sortBy('id')->map(fn($p) => [
+            'fecha' => $p->fecha->format('d/m/Y H:i'),
+            'metodo' => $p->metodo?->nombre,
+            'monto' => (float) $p->monto,
+        ])->values()->all();
 
         $this->ventaId = $venta->id;
         $this->venta = [
@@ -343,6 +368,50 @@ class VentaForm extends Component
         ];
     }
 
+    // ------------------------------------------------------- cobro
+
+    public function agregarPago(): void
+    {
+        $this->montoTocado = true;
+        $this->pagos[] = ['metodo_pago_id' => null, 'monto' => max(0, $this->saldoPrevisto())];
+    }
+
+    public function quitarPago(int $index): void
+    {
+        unset($this->pagos[$index]);
+        $this->pagos = array_values($this->pagos);
+        $this->montoTocado = true;
+    }
+
+    public function updatedPagos($valor, $clave): void
+    {
+        if (str_ends_with((string) $clave, '.monto')) {
+            $this->montoTocado = true;
+        }
+    }
+
+    public function cobradoPrevisto(): float
+    {
+        if ($this->esEdicion()) {
+            return round(array_sum(array_column($this->pagosExistentes, 'monto')), 2);
+        }
+
+        return round(array_sum(array_map(fn($p) => (float) ($p['monto'] ?: 0), $this->pagos)), 2);
+    }
+
+    public function saldoPrevisto(): float
+    {
+        return round($this->totales()['total'] - $this->cobradoPrevisto(), 2);
+    }
+
+    /** El unico pago sigue al total mientras nadie lo toque. */
+    private function seguirTotal(): void
+    {
+        if (!$this->esEdicion() && !$this->montoTocado && count($this->pagos) === 1) {
+            $this->pagos[0]['monto'] = max(0, $this->totales()['total']);
+        }
+    }
+
     // ------------------------------------------------------- guardar
 
     protected function rules(): array
@@ -356,6 +425,7 @@ class VentaForm extends Component
             'lineas.*.precio' => 'required|numeric|min:0',
             'lineas.*.descuento' => 'nullable|numeric|min:0',
             'lineas.*.garantia_meses' => 'nullable|integer|min:0|max:60',
+            'pagos.*.monto' => 'nullable|numeric|min:0',
         ];
     }
 
@@ -367,11 +437,13 @@ class VentaForm extends Component
             'lineas.required' => 'Agrega al menos un equipo, repuesto o accesorio.',
             'lineas.min' => 'Agrega al menos un equipo, repuesto o accesorio.',
             'lineas.*.cantidad.min' => 'La cantidad debe ser al menos 1.',
+            'pagos.*.monto.min' => 'Un pago no puede ser negativo.',
         ];
     }
 
     public function guardar()
     {
+        $this->seguirTotal();
         $this->validate();
 
         $cabecera = [
@@ -409,7 +481,7 @@ class VentaForm extends Component
         }
 
         try {
-            $venta = DB::transaction(fn() => $servicio->registrar($cabecera, $lineas, $this->repuestosVenta, Auth::user(), $this->claveIdempotencia));
+            $venta = DB::transaction(fn() => $servicio->registrar($cabecera, $lineas, $this->repuestosVenta, $this->pagos, Auth::user(), $this->claveIdempotencia));
         } catch (QueryException $e) {
             // Dos peticiones a la vez con la misma clave: la otra commiteo y la
             // nuestra ya revirtio entera, asi que releer es seguro.
@@ -422,17 +494,31 @@ class VentaForm extends Component
             throw $e;
         }
 
-        toastr()->success('Venta registrada exitosamente');
+        toastr()->success($venta->aCredito()
+            ? 'Venta registrada a crédito: saldo Bs ' . number_format($venta->saldoPendiente(), 2)
+            : 'Venta registrada exitosamente');
 
         return redirect()->route('ventas.detalles', $venta->id);
     }
 
     public function render()
     {
+        $this->seguirTotal();
+
+        // La deuda que ya tiene el cliente: se avisa, no se bloquea (docs/04).
+        $deudaCliente = 0.0;
+        if ($id = $this->clienteIdElegido()) {
+            $deudaCliente = round((float) Venta::where('cliente_id', $id)->conSaldo()
+                ->when($this->ventaId, fn($q) => $q->whereKeyNot($this->ventaId))
+                ->sum('saldo'), 2);
+        }
+
         return view('livewire.venta.venta-form', [
             'sucursales' => $this->esEdicion()
                 ? Sucursal::paraSelect($this->sucursalDelDocumento())
                 : Sucursal::activas()->orderBy('nombre')->get(),
+            'metodos' => $this->esEdicion() ? collect() : MetodoPago::activos()->get(),
+            'deudaCliente' => $deudaCliente,
         ]);
     }
 }

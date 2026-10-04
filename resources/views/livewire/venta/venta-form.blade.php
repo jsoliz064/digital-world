@@ -37,6 +37,13 @@
         <div>
             <x-cliente-picker :search="$searchCliente" :sugerencias="$filteredClientes"
                 :nombre="$venta['cliente'] ?? null" :cliente-id="$venta['cliente_id'] ?? null" label="Cliente" />
+            <x-input-error for="cliente" class="mt-1" />
+            {{-- Avisa, no bloquea (docs/04): venderle a quien ya debe es decision del vendedor. --}}
+            @if ($deudaCliente > 0)
+                <p class="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Ya debe Bs {{ number_format($deudaCliente, 2) }} de otras ventas.
+                </p>
+            @endif
         </div>
     </div>
 
@@ -153,6 +160,71 @@
             <div>
                 <x-label value="Total Bs" />
                 <p class="mt-2 text-2xl font-bold text-brand-700 dark:text-brand-300">{{ number_format($t['total'], 2) }}</p>
+            </div>
+        </div>
+
+        {{-- Cobro --}}
+        @php($saldo = $this->saldoPrevisto())
+        <div class="mt-4 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div class="flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800 dark:text-gray-100">Cobro</h3>
+                @if (!$this->esEdicion())
+                    <button type="button" wire:click="agregarPago" class="text-sm text-brand-600 hover:underline">
+                        <i class="fa-solid fa-plus"></i> Agregar método
+                    </button>
+                @endif
+            </div>
+
+            @if ($this->esEdicion())
+                {{-- Los cobros nuevos van por el modal de cobro, desde el detalle. --}}
+                <ul class="mt-2 divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+                    @forelse ($pagosExistentes as $pago)
+                        <li class="py-1 flex justify-between" wire:key="pago-existente-{{ $loop->index }}">
+                            <span class="text-gray-600 dark:text-gray-300">{{ $pago['fecha'] }} · {{ $pago['metodo'] }}</span>
+                            <span>Bs {{ number_format($pago['monto'], 2) }}</span>
+                        </li>
+                    @empty
+                        <li class="py-1 text-gray-500">Sin pagos registrados.</li>
+                    @endforelse
+                </ul>
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Para cobrar o anular un pago, usa el detalle de la venta.</p>
+            @else
+                <div class="mt-2 space-y-2">
+                    @foreach ($pagos as $i => $pago)
+                        <div class="flex gap-2" wire:key="pago-{{ $i }}">
+                            <select wire:model.live="pagos.{{ $i }}.metodo_pago_id"
+                                class="block w-1/2 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm h-10">
+                                <option value="">Método...</option>
+                                @foreach ($metodos as $metodo)
+                                    <option value="{{ $metodo->id }}">{{ $metodo->nombre }}</option>
+                                @endforeach
+                            </select>
+                            <x-input type="number" min="0" step="0.01" class="w-1/2 text-right"
+                                wire:model.live.debounce.400ms="pagos.{{ $i }}.monto" onfocus="this.select()" />
+                            @if (count($pagos) > 1)
+                                <button type="button" wire:click="quitarPago({{ $i }})" class="text-red-600 hover:text-red-800 text-lg px-1" title="Quitar">&times;</button>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+                @error('pagos.*.monto') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+            @endif
+            <x-input-error for="pagos" class="mt-1" />
+
+            <div class="mt-3 flex flex-wrap justify-between gap-2 text-sm">
+                <span>Cobrado: <strong>Bs {{ number_format($this->cobradoPrevisto(), 2) }}</strong></span>
+                @if ($saldo > 0)
+                    <span class="font-semibold text-amber-700 dark:text-amber-300">
+                        <i class="fa-solid fa-hand-holding-dollar"></i> Queda a crédito: Bs {{ number_format($saldo, 2) }}
+                        @if (empty($venta['cliente_id']))
+                            · elige el cliente
+                        @endif
+                    </span>
+                @elseif ($saldo < 0)
+                    <span class="font-semibold text-red-600">Se cobra Bs {{ number_format(-$saldo, 2) }} de más</span>
+                @else
+                    <span class="font-semibold text-green-700 dark:text-green-300">Pagada</span>
+                @endif
             </div>
         </div>
 

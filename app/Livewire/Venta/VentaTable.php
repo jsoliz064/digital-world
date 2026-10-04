@@ -7,6 +7,7 @@ use App\Models\Venta;
 use Carbon\Carbon;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
 use Rappasoft\LaravelLivewireTables\Views\Column;
+use Rappasoft\LaravelLivewireTables\Views\Filters\SelectFilter;
 use Livewire\Attributes\On;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -71,6 +72,12 @@ class VentaTable extends DataTableComponent
             Column::make('Total', 'total')
                 ->sortable()
                 ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
+            Column::make('Saldo', 'saldo')
+                ->sortable()
+                ->format(fn($value) => (float) $value > 0
+                    ? '<span class="font-semibold text-amber-700 dark:text-amber-300">Bs ' . number_format((float) $value, 2) . '</span>'
+                    : '<span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">Pagada</span>')
+                ->html(),
             Column::make('Vendedor', 'user.name')
                 ->sortable()
                 ->searchable()
@@ -78,6 +85,24 @@ class VentaTable extends DataTableComponent
             Column::make('Acciones', 'id')
                 ->format(fn($value, $row) => view('livewire.venta.actions-buttons', ['row' => $row])),
         ];
+    }
+
+    public function filters(): array
+    {
+        return [
+            SelectFilter::make('Cobro', 'cobro')
+                ->options(['' => 'Todas', 'credito' => 'A crédito', 'pagada' => 'Pagadas'])
+                ->filter(fn(Builder $q, string $valor) => match ($valor) {
+                    'credito' => $q->where('ventas.saldo', '>', 0),
+                    'pagada' => $q->where('ventas.saldo', '<=', 0),
+                    default => $q,
+                }),
+        ];
+    }
+
+    #[On('pagosActualizados')]
+    public function refrescarPagos(): void
+    {
     }
 
     public function builder(): Builder

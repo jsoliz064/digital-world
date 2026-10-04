@@ -7,7 +7,7 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
-/** La pagina de detalle de una venta: cabecera, totales y sus lineas. */
+/** La pagina de detalle de una venta: cabecera, totales, cobro y sus lineas. */
 class VentaDetalle extends Component
 {
     #[Locked]
@@ -21,7 +21,8 @@ class VentaDetalle extends Component
     public function render()
     {
         // La carga va en render(): Livewire rehidrata por id y sin relaciones.
-        $venta = Venta::with(['user', 'sucursal', 'fichaCliente'])->withCount('detalles')->find($this->ventaId);
+        $venta = Venta::with(['user', 'sucursal', 'fichaCliente', 'pagos' => fn($q) => $q->with(['metodo', 'user'])->orderBy('id')])
+            ->withCount('detalles')->find($this->ventaId);
 
         if (!$venta) {
             // Anularon la ultima linea: la venta ya no existe.
@@ -41,7 +42,22 @@ class VentaDetalle extends Component
         $this->dispatch('openVentaDestroyModal', $this->ventaId);
     }
 
+    public function cobrar(): void
+    {
+        $venta = Venta::find($this->ventaId);
+
+        if ($venta?->cliente_id) {
+            $this->dispatch('openCobroModal', clienteId: $venta->cliente_id, ventaId: $venta->id);
+        }
+    }
+
+    public function anularPago($pagoId): void
+    {
+        $this->dispatch('openPagoAnularModal', $pagoId);
+    }
+
     #[On('refreshVentaDetalle')]
+    #[On('pagosActualizados')]
     public function refreshVentaDetalle()
     {
     }

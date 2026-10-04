@@ -2,6 +2,11 @@
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
         <a href="{{ route('ventas') }}" class="text-sm text-brand-600 hover:underline">Volver a ventas</a>
         <div class="flex gap-2">
+            @if ($venta->aCredito())
+                @can('pago.create')
+                    <x-button wire:click="cobrar">Cobrar</x-button>
+                @endcan
+            @endif
             @can('venta.edit')
                 <x-secondary-button wire:click="ventaEditar">Editar</x-secondary-button>
             @endcan
@@ -44,6 +49,44 @@
         @endcan
     </div>
 
+    {{-- Cobro --}}
+    <div class="mt-3 bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap gap-6 text-sm">
+                <div><span class="text-gray-500">Cobrado</span><br><span class="font-semibold">Bs {{ number_format((float) $venta->pagado, 2) }}</span></div>
+                <div><span class="text-gray-500">Saldo</span><br>
+                    <span class="font-semibold {{ $venta->aCredito() ? 'text-amber-700 dark:text-amber-300' : '' }}">Bs {{ number_format($venta->saldoPendiente(), 2) }}</span>
+                </div>
+            </div>
+            @if ($venta->aCredito())
+                <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">A crédito</span>
+            @else
+                <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                    Pagada{{ $venta->pagada_at ? ' el ' . $venta->pagada_at->format('d/m/Y') : '' }}
+                </span>
+            @endif
+        </div>
+
+        <ul class="mt-3 divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+            @forelse ($venta->pagos as $pago)
+                <li class="py-2 flex flex-wrap items-center justify-between gap-2" wire:key="pago-{{ $pago->id }}">
+                    <span class="text-gray-700 dark:text-gray-200">
+                        {{ $pago->fecha->format('d/m/Y H:i') }} · {{ $pago->metodo?->nombre }}
+                        <span class="text-xs text-gray-500">· {{ $pago->momento->label() }}{{ $pago->user ? ' · ' . $pago->user->name : '' }}{{ $pago->nota ? ' · ' . $pago->nota : '' }}</span>
+                    </span>
+                    <span class="flex items-center gap-3">
+                        <span class="font-semibold">Bs {{ number_format((float) $pago->monto, 2) }}</span>
+                        @can('pago.anular')
+                            <button type="button" wire:click="anularPago({{ $pago->id }})" class="text-xs text-red-600 hover:underline">Anular</button>
+                        @endcan
+                    </span>
+                </li>
+            @empty
+                <li class="py-2 text-gray-500">Sin pagos registrados.</li>
+            @endforelse
+        </ul>
+    </div>
+
     <div class="mt-6">
         <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-2">Lo que se vendió</h3>
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden py-2 px-2">
@@ -53,4 +96,6 @@
 
     @livewire('venta.modals.venta-detalle-destroy-modal')
     @livewire('venta.modals.venta-destroy-modal')
+    @livewire('cobranza.modals.cobro-modal')
+    @livewire('cobranza.modals.pago-anular-modal')
 </div>
