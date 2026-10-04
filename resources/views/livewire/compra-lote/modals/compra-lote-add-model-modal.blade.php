@@ -210,7 +210,7 @@
                         </div>
 
                         <div class="animate-fade-in">
-                            <x-label for="status" value="Estado *" />
+                            <x-label for="status" :value="$enBorrador ? 'Estado al finalizar la compra *' : 'Estado *'" />
                             <select wire:model.live="status" id="status"
                                 class="mt-2 block w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
                                        focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm transition-all duration-200 h-10">

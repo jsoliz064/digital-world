@@ -221,8 +221,11 @@
                         </div>
 
                         <div class="animate-fade-in">
-                            <x-label value="Estado *" />
+                            <x-label :value="$enBorrador ? 'Estado al finalizar la compra' : 'Estado *'" />
                             <x-input wire:model="producto.status" class="w-full" disabled="true"></x-input>
+                            @if ($enBorrador)
+                                <p class="mt-1 text-xs text-gray-500">Mientras la compra sea borrador, el equipo está En compra.</p>
+                            @endif
                         </div>
 
                         <div class="animate-fade-in">

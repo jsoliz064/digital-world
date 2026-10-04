@@ -29,7 +29,8 @@ class ProveedorComprasTable extends DataTableComponent
             ->setDefaultSort('fecha', 'desc')
             ->setSearchDisabled()
             ->setEmptyMessage('Todavía no hay compras a este proveedor.');
-        $this->setAdditionalSelects(['compras.id']);
+        // finalizada_at: estado() la lee y un label() no la selecciona.
+        $this->setAdditionalSelects(['compras.id', 'compras.finalizada_at']);
     }
 
     #[On('pagosProveedorActualizados')]

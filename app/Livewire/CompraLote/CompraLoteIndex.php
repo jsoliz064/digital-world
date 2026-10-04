@@ -10,7 +10,8 @@ use Livewire\Component;
 /**
  * El detalle de una compra: su cabecera, el estado y lo pagado al proveedor,
  * los equipos (que se dan de alta aqui, uno por uno, con IMEI y fotos), los
- * reclamos y los repuestos y accesorios que trajo.
+ * reclamos y los repuestos y accesorios (CompraArticulos). Todo se guarda al
+ * momento; en borrador, «Finalizar compra» mete el stock y libera los equipos.
  */
 class CompraLoteIndex extends Component
 {
@@ -25,6 +26,13 @@ class CompraLoteIndex extends Component
     public function openProductoEstadoMasivoModal()
     {
         $this->dispatch('openProductoEstadoMasivoModal', compraId: $this->compraId);
+    }
+
+    public function finalizar(): void
+    {
+        abort_unless(auth()->user()->can('compra.finalizar'), 403);
+
+        $this->dispatch('openCompraFinalizarModal', compraId: $this->compraId);
     }
 
     public function registrarPago(): void

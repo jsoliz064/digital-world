@@ -25,6 +25,9 @@ class CompraTable extends DataTableComponent
             ->setDefaultSort('compras.id', 'desc')
             ->setSearchPlaceholder('Buscar por proveedor o nº de compra...')
             ->setEmptyMessage('Todavía no hay compras registradas.');
+
+        // Los label() no seleccionan su campo: estado() y badgePago() los leen.
+        $this->setAdditionalSelects(['compras.finalizada_at', 'compras.pagado', 'compras.pagada_at']);
     }
 
     public function builder(): Builder
@@ -72,6 +75,10 @@ class CompraTable extends DataTableComponent
             Column::make('Estado')
                 ->label(fn($row) => $row->estado()->badge())
                 ->html(),
+            Column::make('Pago')
+                ->label(fn($row) => $row->badgePago())
+                ->html()
+                ->collapseOnTablet(),
             Column::make('Acciones', 'id')
                 ->format(fn($value, $row) => view('livewire.compra.actions-buttons', ['row' => $row])),
         ];

@@ -108,7 +108,7 @@ class CompraLoteAddModelModal extends Component
             'estado_grado' => ['required', Rule::in(ProductoGrado::values())],
             'tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
             // Al dar de alta no se puede elegir Vendido ni Credito: los escribe una venta.
-            'status' => ['required', Rule::in(array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()))],
+            'status' => ['required', Rule::in($this->estadosPermitidos())],
             'tecnico_selected' => 'required_if:status,' . ProductoEstado::Reparacion->value,
             'sucursal_id' => 'required|exists:sucursales,id,activa,1',
         ];
@@ -156,11 +156,30 @@ class CompraLoteAddModelModal extends Component
         $this->sucursales = Sucursal::activas()->orderBy('nombre')->get();
     }
 
+    /**
+     * En borrador, el estado elegido es al que pasa el equipo al FINALIZAR
+     * (mientras tanto espera en En compra), y no incluye Reparacion: no se
+     * manda al tecnico un equipo que todavia no se recibio.
+     *
+     * @return string[]
+     */
+    private function estadosPermitidos(): array
+    {
+        if (Compra::whereKey($this->compra->id)->value('finalizada_at') === null) {
+            return CompraService::estadosDestinoBorrador();
+        }
+
+        return array_values(array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()));
+    }
+
     public function render()
     {
+        $permitidos = $this->estadosPermitidos();
+
         return view('livewire.compra-lote.modals.compra-lote-add-model-modal', [
             'estadosAlta' => collect(ProductoEstado::cases())
-                ->reject(fn($e) => in_array($e->value, ProductoEstado::soloPorDocumento(), true)),
+                ->filter(fn($e) => in_array($e->value, $permitidos, true)),
+            'enBorrador' => Compra::whereKey($this->compra->id)->value('finalizada_at') === null,
         ]);
     }
 
@@ -254,8 +273,12 @@ class CompraLoteAddModelModal extends Component
         $this->upc = '';
         $this->bateria_porcentaje = $ultimo?->bateria_porcentaje ?? 0;
         $this->descripcion = '';
-        $this->status = $ultimo && !in_array($ultimo->estado, ProductoEstado::soloPorDocumento(), true)
-            ? $ultimo->estado
+        // En borrador el ultimo esta En compra: se repite el estado al que pasara.
+        $estadoUltimo = $ultimo?->estado === ProductoEstado::EnCompra->value
+            ? $ultimo->compraDetalle?->estado_destino
+            : $ultimo?->estado;
+        $this->status = $estadoUltimo && in_array($estadoUltimo, $this->estadosPermitidos(), true)
+            ? $estadoUltimo
             : ProductoEstado::Inventario->value;
         $this->tecnico_selected = null;
         $this->photos = [];

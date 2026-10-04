@@ -10,10 +10,11 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
- * Eliminar una compra. Solo sin equipos (cada equipo se quita desde el detalle,
- * con sus reglas). Sus repuestos y accesorios salen del stock de la sucursal de
- * cada linea; si ya se vendieron, CompraService::eliminar() falla con mensaje y
- * no se borra nada.
+ * Eliminar una compra. En borrador se va entera, equipos incluidos (nunca se
+ * vendieron ni entro su stock). Finalizada, solo sin equipos (cada equipo se
+ * quita desde el detalle, con sus reglas) y sus repuestos y accesorios salen
+ * del stock de la sucursal de cada linea; si ya se vendieron,
+ * CompraService::eliminar() falla con mensaje y no se borra nada.
  */
 class CompraDestroyModal extends Component
 {
@@ -34,7 +35,7 @@ class CompraDestroyModal extends Component
         DB::transaction(fn() => app(CompraService::class)->eliminar(Compra::lockForUpdate()->findOrFail($this->compraId)));
 
         $this->dispatch('refreshCompraTable');
-        toastr()->success('Compra eliminada y su stock revertido.');
+        toastr()->success('Compra eliminada.');
         $this->reset();
     }
 
@@ -52,6 +53,7 @@ class CompraDestroyModal extends Component
         return view('livewire.compra.modals.compra-destroy-modal', [
             'compra' => $compra,
             'equipos' => $compra ? $compra->detalles->whereNotNull('producto_id')->count() : 0,
+            'borrador' => $compra?->esBorrador() ?? false,
         ]);
     }
 }

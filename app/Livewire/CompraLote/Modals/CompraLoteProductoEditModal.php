@@ -38,6 +38,9 @@ class CompraLoteProductoEditModal extends Component
     public $currentPhotoIndex = 0;
     public $producto;
 
+    /** El equipo espera en En compra: el select edita el estado al finalizar. */
+    public bool $enBorrador = false;
+
 
     public function render()
     {
@@ -55,7 +58,10 @@ class CompraLoteProductoEditModal extends Component
         $producto = Producto::with(['modelo', 'modelo.almacenamientos', 'imagenes',])->find($id);
         $this->producto = $producto->toArray();
         $this->producto['nombre'] = $producto->modelo->nombre;
-        $this->producto['status'] = $producto->estado;
+        $this->enBorrador = $producto->estado === ProductoEstado::EnCompra->value;
+        $this->producto['status'] = $this->enBorrador
+            ? ($producto->compraDetalle?->estado_destino ?? ProductoEstado::Inventario->value)
+            : $producto->estado;
         $this->producto['disponible_catalogo'] = (bool)$producto->disponible_catalogo;
         $this->producto['sin_reparacion'] = (bool)$producto->sin_reparacion;
         // Recibido en permuta: su costo ES el pago de la venta y no se edita aqui.
@@ -112,7 +118,9 @@ class CompraLoteProductoEditModal extends Component
             'producto.precio_cliente' => 'required|numeric|min:0',
             'producto.precio_vendedor' => 'required|numeric|min:0',
             // Vendido y Credito solo los escribe una venta.
-            'producto.status' => ['required', Rule::in(array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()))],
+            'producto.status' => ['required', Rule::in($this->enBorrador
+                ? CompraService::estadosDestinoBorrador()
+                : array_diff(ProductoEstado::values(), ProductoEstado::soloPorDocumento()))],
             // La unicidad del IMEI tambien al EDITAR: aqui era un 'required' a
             // secas, asi que ponerle a un producto el IMEI de otro se guardaba
             // sin protestar. El ignore del propio id es para que reguardar sin
@@ -194,7 +202,11 @@ class CompraLoteProductoEditModal extends Component
                 }
             }
 
-            if ($estadoNuevo !== $estadoAnterior) {
+            if ($this->enBorrador) {
+                // El estado real sigue en En compra; cambiarEstadoDestino()
+                // rechaza si la compra se finalizo mientras el modal estaba abierto.
+                app(CompraService::class)->cambiarEstadoDestino($product, $estadoNuevo);
+            } elseif ($estadoNuevo !== $estadoAnterior) {
                 $estados->cambiar(
                     $product->id,
                     ProductoEstado::from($estadoAnterior),

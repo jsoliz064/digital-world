@@ -11,12 +11,26 @@
     </div>
 
     <div class="text-center my-4">
-        <h2 class="text-2xl font-bold text-gray-800 dark:text-white">Compra #{{ $compra->id }} {!! $compra->estado()->badge() !!}</h2>
+        <h2 class="text-2xl font-bold text-gray-800 dark:text-white">Compra #{{ $compra->id }} {!! $compra->estado()->badge() !!} {!! $compra->badgePago() !!}</h2>
         <p class="text-sm text-gray-600 dark:text-gray-300">
             {{ $compra->proveedor?->nombre }} · {{ $compra->fecha->format('d/m/Y') }}
             · Entra a {{ $compra->sucursal?->nombre ?? '—' }}
+            @if ($compra->finalizada_at)
+                · Finalizada el {{ $compra->finalizada_at->format('d/m/Y H:i') }}
+            @endif
         </p>
     </div>
+
+    @if ($compra->esBorrador())
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">
+            <p>
+                <strong>Borrador.</strong> Lo que cargas se guarda al momento, pero nada entra al stock ni se puede vender hasta finalizar la compra.
+            </p>
+            @can('compra.finalizar')
+                <x-button wire:click="finalizar" wire:loading.attr="disabled">Finalizar compra</x-button>
+            @endcan
+        </div>
+    @endif
 
     <div class="grid grid-cols-3 gap-3 mb-4">
         <div class="bg-brand-100 dark:bg-brand-900 p-3 rounded-xl border border-brand-200 dark:border-brand-700">
@@ -118,38 +132,9 @@
 
     @livewire('compra-lote.compra-lote-table', ['compraId' => $compra->id])
 
-    <x-collapse-card title="Repuestos y accesorios de la compra" :open="$articulos->isNotEmpty()">
-        @if ($articulos->isEmpty())
-            <p class="text-sm text-gray-500 dark:text-gray-400 p-2">
-                Esta compra no trae repuestos ni accesorios.
-                @can('compra.edit')
-                    <a href="{{ route('compras.editar', $compra->id) }}" class="text-brand-600 hover:underline">Agregarlos</a>
-                @endcan
-            </p>
-        @else
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-gray-100 dark:bg-gray-700">
-                        <tr>
-                            <th class="p-2 text-left">Artículo</th>
-                            <th class="p-2 text-right">Cantidad</th>
-                            <th class="p-2 text-right">Costo unit.</th>
-                            <th class="p-2 text-right">Subtotal</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($articulos as $d)
-                            <tr class="border-t border-gray-200 dark:border-gray-700" wire:key="cd-{{ $d->id }}">
-                                <td class="p-2">{!! \App\Enums\LineaTipo::badge($d->tipo) !!} {{ $d->articulo()?->nombre }}</td>
-                                <td class="p-2 text-right">{{ $d->cantidad }}</td>
-                                <td class="p-2 text-right">Bs {{ number_format((float) $d->costo, 2) }}</td>
-                                <td class="p-2 text-right">Bs {{ number_format((float) $d->subtotal, 2) }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-        @endif
+    {{-- Abierta en borrador: es donde se esta cargando. --}}
+    <x-collapse-card title="Repuestos y accesorios de la compra" :open="$compra->esBorrador() || $articulos->isNotEmpty()">
+        @livewire('compra-lote.compra-articulos', ['compraId' => $compra->id], key('compra-articulos-' . $compra->id))
     </x-collapse-card>
 
     @livewire('compra-lote.modals.compra-lote-add-model-modal', ['compra_lote' => $compra])
@@ -161,4 +146,12 @@
     @livewire('compra.modals.reclamo-cerrar-modal')
     @livewire('cuenta-pagar.modals.pago-proveedor-modal')
     @livewire('cuenta-pagar.modals.pago-proveedor-anular-modal')
+    @can('compra.finalizar')
+        @livewire('compra.modals.compra-finalizar-modal')
+    @endcan
+    @can('compra.edit')
+        @livewire('articulo.modals.articulo-selector-modal')
+        @livewire('articulo.modals.articulo-form-modal', ['tipo' => 'Repuesto', 'conStock' => false], key('alta-repuesto'))
+        @livewire('articulo.modals.articulo-form-modal', ['tipo' => 'Accesorio', 'conStock' => false], key('alta-accesorio'))
+    @endcan
 </div>
