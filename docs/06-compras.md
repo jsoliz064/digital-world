@@ -33,6 +33,25 @@ Las dos pantallas se unifican: **una compra es una sola orden** con su fecha, pr
 
 El total de la compra es la suma de sus líneas. Quitar un equipo o una línea lo recalcula; una compra cuyos artículos ya se vendieron no se puede borrar.
 
+### Borrador: se carga por partes y se finaliza
+
+Una compra trae 20 o 50 equipos, además de repuestos y accesorios. Si todo se carga en una sola pantalla, un corte de internet o una recarga hace perder lo cargado. Por eso:
+
+1. **Se crea la compra** solo con proveedor, fecha y sucursal. Queda en **Borrador** y se abre su detalle.
+2. **En el detalle se carga todo**, y cada cosa se guarda en el momento:
+   - los equipos por lote, con IMEI y fotos;
+   - los repuestos y accesorios con el buscador o el escáner. Escanear dos veces el mismo artículo suma una unidad.
+3. **Mientras es borrador, nada entra al inventario**:
+   - los equipos quedan **En compra**: no se venden, no se reservan, no se mandan a reparar ni salen en el catálogo;
+   - los repuestos y accesorios no suman al stock.
+
+   Al cargar cada equipo se elige a qué estado pasará: Inventario, Fuera o Roto.
+4. **Finalizar compra** mete el stock en la sucursal y pasa los equipos a su estado. Ahí mismo se registra lo **pagado al recibir**.
+
+Después de finalizada la compra se puede seguir corrigiendo, y cada cambio mueve el stock al instante.
+
+Un borrador se puede eliminar entero, con sus equipos, porque nada salió de él. Si tiene pagos, primero hay que anularlos.
+
 ### Todo en bolivianos
 
 La compra se registra en Bs, sin tipo de cambio de por medio, igual que el resto del inventario.
@@ -43,6 +62,7 @@ Cada compra pasa a tener un estado, para saber en qué anda:
 
 | Estado | Qué significa |
 |---|---|
+| **Borrador** | Se está cargando: nada entró todavía al inventario |
 | **Recibida** | Llegó y está todo bien |
 | **Con reclamo** | Llegó con equipos fallados, se le reclamó al proveedor |
 | **Resuelta** | El proveedor repuso o descontó, y el tema está cerrado |
@@ -105,7 +125,9 @@ Y una pantalla de **cuentas por pagar** que muestra todo lo que se le debe a cad
 
 Así quedó:
 
-- Al registrar la compra se carga lo **pagado al recibir** (uno o varios métodos, en Bs o en USD con su tipo de cambio). Los equipos que se cargan después en el detalle suman a lo que se debe.
+- Al **finalizar** la compra se carga lo **pagado al recibir** (uno o varios métodos, en Bs o en USD con su tipo de cambio). Lo que falte queda en cuentas por pagar.
+- También se puede pagar un adelanto mientras la compra es borrador, hasta lo que ya está cargado.
+- El **estado de pago** (Sin pagar / Parcial / Pagada) se muestra aparte del estado de la compra.
 - Los pagos se registran desde el detalle de la compra, desde **Cuentas por pagar** o desde la ficha del proveedor; el monto se reparte de la compra más antigua (por fecha) a la más nueva, y cada una se puede corregir.
 - Un pago se puede anular; una compra **con pagos no se elimina** hasta anularlos.
 - No se puede bajar el total de una compra (quitar un equipo, un descuento) por debajo de lo ya pagado: primero hay que anular un pago.
@@ -125,9 +147,11 @@ En la carga de un equipo, el Enter de la pistola **nunca guarda**: pasa al campo
 ```
 Llega una compra de 20 equipos
 
-  1. Se registra la compra: proveedor, fecha, 48.000 Bs
-  2. Se cargan los equipos por lote, escaneando IMEI y código de barras
-  3. Se paga 20.000 al recibir  -> quedan 28.000 en cuentas por pagar
+  1. Se crea la compra: proveedor, fecha, sucursal  -> queda en Borrador
+  2. Se cargan los equipos por lote, escaneando IMEI y código de barras,
+     y los accesorios con el escáner (cada uno se guarda al momento)
+  3. Finalizar compra: el stock entra, los equipos pasan a Inventario,
+     y se paga 20.000 al recibir  -> quedan 28.000 en cuentas por pagar
   4. Al revisar, dos equipos vienen fallados:
        se los marca en reclamo y salen del inventario vendible
        la compra queda "Con reclamo"

@@ -83,7 +83,7 @@ Todo lo que le pasa a un teléfono, a un artículo, a un cliente, a una venta, a
 | `ventas_detalles` | [VentaService](app/Services/VentaService.php) (`registrar`, `actualizar`) |
 | anular una línea o una venta | [AnulacionVentaService](app/Services/AnulacionVentaService.php) |
 | cobrar las piezas de una reparación | [RepuestosDeReparacionService](app/Services/RepuestosDeReparacionService.php) |
-| `compras_detalles` y el alta de equipos | [CompraService](app/Services/CompraService.php) |
+| `compras_detalles`, el alta de equipos y finalizar la compra | [CompraService](app/Services/CompraService.php) |
 | la baja de un equipo o de unidades | [BajaService](app/Services/BajaService.php) |
 | los regalos de un equipo | [ProductoRegalosService](app/Services/ProductoRegalosService.php) |
 | buscar por IMEI / UPC / SKU / nombre | [BuscadorArticulosService](app/Services/BuscadorArticulosService.php) |
@@ -127,14 +127,14 @@ Más `CHECK` de exactamente un artículo, equipo con cantidad 1 y cantidad ≥ 1
 - **El costo se relee de la base**, nunca del formulario: del equipo bloqueado (`costo_total`, que ya incluye regalos y reparaciones) o del artículo. La línea lo congela.
 - **Orden de bloqueo idéntico en todos los flujos**: equipos por id y luego stock por (tipo, id). En otro orden, dos ventas simultáneas se bloquearían mutuamente.
 - **El cobro de las piezas de una reparación es una línea más de la misma venta** (`producto_reparacion_repuesto_id`), con costo 0 —la pieza ya está dentro del costo del equipo— y **sin mover stock** (`VentaDetalle::stockYaDescontado()`). Se descobra **antes** de tocar la venta. La FK de cobro va en RESTRICT: `PiezasCobradasTrait` avisa antes de quitar o cambiar una pieza ya cobrada (con SET NULL, el cobro se convertía en una venta normal que movía stock).
-- `venta_id` / `compra_id` van en **RESTRICT**: anular pasa por el servicio, que devuelve el stock; nunca por una cascada. Una venta o compra sin líneas se borra (una cabecera vacía se lee como "no se guardó").
+- `venta_id` / `compra_id` van en **RESTRICT**: anular pasa por el servicio, que devuelve el stock; nunca por una cascada. Una venta sin líneas se borra (una cabecera vacía se lee como "no se guardó"). Una compra **en borrador** sin líneas sí es válida: se crea la cabecera y se carga después.
 - **No existe `productos.compra_id`**: la línea de `compras_detalles` (UNIQUE `producto_id`) es la única verdad de qué compra trajo el equipo. `Producto::compra()` es un `hasOneThrough`; `Producto::compraDetalle()` y `ventaDetalle()` son las líneas.
 - `ventas_detalles.tipo_venta` congela el tipo de venta del equipo al venderse: los reportes no cambian si luego se edita el equipo.
 - **Hay una sola puerta de venta**: [VentaForm](app/Livewire/Venta/VentaForm.php) (crear y editar). El modal de estado del producto ya no vende: su botón «Vender» lleva a `ventas/crear?producto=`.
 
 ### El producto: estado, baja y regalos
 
-`ProductoEstado`: Inventario, Reparacion, Fuera, Roto, Reserva, Credito, Vendido. **Fuera** = salió del local (lo tiene alguien); **Roto** = está roto. **Ninguno es una baja.** No hay Tránsito ni Oferta: la oferta es `productos.tipo_venta` (Venta, Oferta, Venta externa), y un equipo en oferta está en Inventario. `Vendido` y `Credito` (`ProductoEstado::vendidos()`) **solo los escribe una venta**, `Reserva` **solo una reserva** (`ReservaService`) y `Reclamo` **solo un reclamo al proveedor** (`ReclamoService`): son `soloPorDocumento()` y no salen en el selector. `ProductoEstado::puedeAbrir()` decide si el botón de estado de las tablas abre el modal (para ver y operar el documento). `fueraDeCatalogo()` es lo que el catálogo público excluye (vendidos, rotos, reservados).
+`ProductoEstado`: Inventario, Reparacion, Fuera, Roto, Reserva, Credito, Vendido, Reclamo, EnCompra. **Fuera** = salió del local (lo tiene alguien); **Roto** = está roto. **Ninguno es una baja.** No hay Tránsito ni Oferta: la oferta es `productos.tipo_venta` (Venta, Oferta, Venta externa), y un equipo en oferta está en Inventario. `Vendido` y `Credito` (`ProductoEstado::vendidos()`) **solo los escribe una venta**, `Reserva` **solo una reserva** (`ReservaService`), `Reclamo` **solo un reclamo al proveedor** (`ReclamoService`) y `EnCompra` **solo una compra en borrador** (`CompraService`): son `soloPorDocumento()` y no salen en el selector. `ProductoEstado::puedeAbrir()` decide si el botón de estado de las tablas abre el modal (para ver y operar el documento). `fueraDeCatalogo()` es lo que el catálogo público excluye (vendidos, rotos, reservados).
 
 `productos.estado` lo escribe **solo** `EstadoProductoService::cambiar($productoId, $esperado, $destino, $descripcion, $enlaces, $exigirPermiso)`:
 
@@ -225,11 +225,38 @@ Lo cobrado de una venta vive en `ventas_pagos` (al vender, `momento` Venta; desp
 
 Un equipo apartado por un cliente con una seña (`reservas`). Mientras está `Activa`, el equipo está en estado Reserva: fuera de la venta y del catálogo. **No vence**; se **concreta** (la venta con `cabecera['reserva_id']`: `VentaService` bloquea la reserva primero, exige su equipo en la venta, fija el cliente, vende el equipo esperando Reserva y al final registra la seña) o se **cancela** eligiendo `SenaDestino` (Devuelta / Retenida). Una sola reserva activa por equipo: columna generada `producto_activo` con UNIQUE. **Orden de bloqueo: reserva → venta → equipos → stock.**
 
+### Compras en borrador: `CompraService::finalizar()`
+
+Una compra de 50 equipos no se carga en una sola pantalla sin perderla al primer corte de internet. Por eso `CompraForm` crea **solo la cabecera** (`crear()`), en borrador, y todo lo demás se guarda línea por línea desde el detalle (`CompraLoteIndex`):
+- los equipos por `CompraLoteAddModelModal` → `agregarProducto()`;
+- los repuestos y accesorios por `CompraArticulos` → `guardarArticulo()` / `quitarArticulo()`, cada acción en su transacción.
+
+- **Borrador = `compras.finalizada_at` NULL.** `CompraEstado::Borrador` se deriva de eso (`Compra::esBorrador()`, `scopeFinalizadas`).
+- **En borrador nada entra al inventario.**
+  - Las líneas de artículo no tocan el stock.
+  - Los equipos nacen en **`ProductoEstado::EnCompra`** (`soloPorDocumento`, fuera de `disponibles` y del catálogo). Su línea guarda en `compras_detalles.estado_destino` el estado elegido: Inventario, Fuera o Roto, nunca Reparación (`estadosDestinoBorrador()`).
+  - `BajaService` y `ProductoRegalosService` lo rechazan.
+- **`finalizar()`** sigue el orden de bloqueo de la casa: compra → equipos por id → stock.
+  1. `EstadoProductoService::cambiar(EnCompra → destino)` y limpia `estado_destino`.
+  2. `ingresar()` a la sucursal de cada línea.
+  3. La fila `finalizada` en la bitácora de la compra.
+  4. Lo pagado al recibir (`PagoProveedorService::registrar`).
+
+  Rechaza una compra ya finalizada (así un reintento no mete el stock dos veces) y una sin líneas.
+- **Finalizada, se sigue corrigiendo**: los mismos métodos ven `esBorrador()` y mueven el stock al instante (`ingresar`, `ajustarEntrada`, `retirar`).
+- **Lo que debe ignorar los borradores**:
+  - la rama de compras de `MovimientoStock`;
+  - `ReporteIndex::lineasCompra()`;
+  - el valor de inventario.
+
+  Una tabla que pinta `estado()` con `label()` necesita `compras.finalizada_at` en `setAdditionalSelects`, o toda compra sale Borrador.
+- **Eliminar un borrador** lo borra entero, con sus equipos. Solo lo impiden los pagos.
+
 ### Cuentas por pagar y reclamos al proveedor
 
 - **`compras_pagos` es el espejo de `ventas_pagos`**: `compras.pagado` cacheado, `saldo` generado, `pagada_at` (solo si el total es mayor que 0). Lo escribe solo `PagoProveedorService`; `Compra::recalcularTotal()` rechaza un total por debajo de lo pagado y resincroniza `pagada_at`. Una compra con pagos **no se elimina** (decisión del usuario). Los componentes escuchan **`pagosProveedorActualizados`**.
 - **Las filas de pago son una sola lógica**: `Services\Concerns\FilasDePago` (validar, Bs/USD, juntar por método y moneda, filas en 0 ignoradas) del lado del servidor, y `Traits\FilasDePagoFormTrait` + el parcial `livewire.partials.filas-pago` del lado de la pantalla. Venta y compra los usan; no se copian.
-- **Reclamo**: `compras_reclamos` (un reclamo abierto por equipo, columna generada `producto_abierto`). El estado de la compra (`CompraEstado`: Recibida / Con reclamo / Resuelta) **se deriva** de los reclamos (`Compra::estado()`, `scopeConEstado`, `scopeConConteoReclamos`), no se guarda.
+- **Reclamo**: `compras_reclamos` (un reclamo abierto por equipo, columna generada `producto_abierto`). El estado de la compra (`CompraEstado`: Borrador / Recibida / Con reclamo / Resuelta) **se deriva** de `finalizada_at` y de los reclamos (`Compra::estado()`, `scopeConEstado`, `scopeConConteoReclamos`), no se guarda.
 - **Cerrar un reclamo**: Reemplazo (nuevo equipo en la misma compra con el costo del fallado, por `CompraService::agregarProducto`), Descuento o Aceptado (vuelve a Inventario o Roto). En los dos primeros el fallado **se devuelve**: `costo_unidad` y su línea de compra a 0 y baja con `BajaMotivo::Devolucion`, que solo se usa desde un reclamo (`BajaService` lo exige en ambos sentidos), no se revierte y no se ofrece a mano (`BajaMotivo::manuales()`).
 - **Orden de bloqueo**: compra → equipos por id → stock.
 
@@ -318,7 +345,7 @@ $this->dispatch('filtersUpdated', [...]);          // Index -> Table
 - **Un SKU o UPC vacío se guarda como NULL** (`NormalizaCodigosTrait`): con `''` el segundo artículo sin SKU choca con el índice único.
 - **Los índices únicos son la garantía de verdad, no la regla `unique:`.** Los de dominio: `productos.imei`, `productos_sku_unico` (y los de repuestos y accesorios), `ventas_detalles_producto_unico` (un teléfono, una sola venta; anular **borra** la línea, así que revender funciona), `compras_detalles_producto_unico`, `vd_reparacion_repuesto_unico`, `vd_venta_articulo_unico`, `cd_compra_articulo_unico`, `clave_idempotencia` en `ventas` y `compras`, y los dos de `stock_sucursales`.
 - **MySQL prohíbe acciones referenciales en columnas que usa un `CHECK` o una columna generada.** Por eso las FK de artículo y de cabecera de las líneas y del stock van en **RESTRICT**: borrar un artículo con movimientos lo impide el código con un mensaje claro, no una cascada.
-- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra, `pagado` contra sus pagos, `pagada_at` contra el saldo, equipos en Credito/Vendido que no coinciden con el saldo de su venta, ventas a crédito sin cliente, equipos en Reserva sin reserva activa (o al revés), reservas concretadas sin su seña, permutas sin equipo o con otro costo, `compras.pagado` contra sus pagos, `pagada_at` de compras, equipos en Reclamo sin reclamo abierto (o al revés), devueltos al proveedor con costo, ventas y reparaciones sin su comisión (o comisiones que sobran), comisiones con `ganada_at`, base o monto en desacuerdo con su documento y liquidaciones descuadradas. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
+- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas vacías, compras finalizadas vacías, equipos En compra que no coinciden con el borrador de su compra, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra, `pagado` contra sus pagos, `pagada_at` contra el saldo, equipos en Credito/Vendido que no coinciden con el saldo de su venta, ventas a crédito sin cliente, equipos en Reserva sin reserva activa (o al revés), reservas concretadas sin su seña, permutas sin equipo o con otro costo, `compras.pagado` contra sus pagos, `pagada_at` de compras, equipos en Reclamo sin reclamo abierto (o al revés), devueltos al proveedor con costo, ventas y reparaciones sin su comisión (o comisiones que sobran), comisiones con `ganada_at`, base o monto en desacuerdo con su documento y liquidaciones descuadradas. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
 - **`Venta::cliente` es una columna, no la relación.** La ficha es `fichaCliente()` y lo que se pinta sale de `nombreCliente()`.
 - **Dentro de una etiqueta `<x-…>` solo valen `@class` y `@style`.** Cualquier otra directiva —`@disabled`, `@checked`— impide que `ComponentTagCompiler` compile el componente, y al navegador le llega un `<x-checkbox>` **literal**, sin ningún error. En un componente va `:disabled="$expr"`; `@disabled(...)` solo sobre HTML plano. Para comprobarlo: tras `php artisan view:cache`, ningún archivo de `storage/framework/views` debe contener `<x-`.
 - **El Observer no ve lo que no pasa por Eloquent.** `DB::table()->update()`, `DB::statement()` y el `update()` del query builder no dejan fila en la bitácora. Si el hecho importa, se registra a mano.
