@@ -26,14 +26,15 @@ use Livewire\Component;
 
 /**
  * Cambiar el estado de un equipo a mano: Inventario, Reparacion (con tecnico y
- * piezas), Fuera (salio del local), Roto, Reserva. Todo en Bs.
+ * piezas), Fuera (salio del local), Roto. Todo en Bs. Reserva la escribe
+ * solo ReservaService: aqui se ve, se concreta o se cancela.
  *
  * NO vende: la venta se hace en la pantalla de ventas (el boton "Vender" lleva
  * a ventas/crear?producto=). Antes este modal era una tercera puerta de venta
  * con su propia copia de la logica. Con el equipo vendido, muestra la venta y
  * permite anular su linea (AnulacionVentaService).
  *
- * Fuera, Roto y Reserva NO son bajas: la baja es aparte (ProductoBajaModal).
+ * Fuera y Roto NO son bajas: la baja es aparte (ProductoBajaModal).
  */
 class ProductoEstadoModal extends Component
 {
@@ -57,7 +58,7 @@ class ProductoEstadoModal extends Component
 
     public $estado;
 
-    /** La nota de Fuera, Roto o Reserva (a quien se le dio, que le pasa, quien reserva). */
+    /** La nota de Fuera o Roto (a quien se le dio, que le pasa). */
     public $nota = '';
 
     public $reparacion = [];
@@ -81,7 +82,7 @@ class ProductoEstadoModal extends Component
     public $sucursalRepuestos = null;
 
     /** Estados que llevan nota obligatoria. */
-    private const CON_NOTA = ['Fuera', 'Roto', 'Reserva'];
+    private const CON_NOTA = ['Fuera', 'Roto'];
 
     public function render()
     {
@@ -90,6 +91,7 @@ class ProductoEstadoModal extends Component
             // En render(): variable de vista, no viaja en el payload.
             'sucursales' => $this->openModal ? Sucursal::activas()->orderBy('nombre')->get() : collect(),
             'lineaVenta' => $this->openModal && $this->producto ? $this->producto->ventaDetalle()->with('venta.fichaCliente')->first() : null,
+            'reserva' => $this->openModal && $this->esReservado() ? $this->producto->reservaActiva()->with(['cliente', 'metodo'])->first() : null,
         ]);
     }
 
@@ -128,6 +130,40 @@ class ProductoEstadoModal extends Component
     public function esVendido(): bool
     {
         return $this->producto && in_array($this->producto->estado, ProductoEstado::vendidos(), true);
+    }
+
+    public function esReservado(): bool
+    {
+        return $this->producto && $this->producto->estado === ProductoEstado::Reserva->value;
+    }
+
+    /** "Reservar" abre el modal de reserva con este equipo (cliente, seña y metodo). */
+    public function reservar(): void
+    {
+        abort_unless(Auth::user()?->can('reserva.create'), 403);
+
+        $this->dispatch('openReservaCreateModal', productoId: $this->producto->id);
+        $this->closeModal();
+    }
+
+    public function cancelarReserva(): void
+    {
+        abort_unless(Auth::user()?->can('reserva.cancelar'), 403);
+
+        if ($reserva = $this->producto->reservaActiva()->first()) {
+            $this->dispatch('openReservaCancelarModal', $reserva->id);
+        }
+        $this->closeModal();
+    }
+
+    /** Concretar: la venta con el equipo, el cliente y la seña ya cargados. */
+    public function concretarReserva()
+    {
+        abort_unless(Auth::user()?->can('venta.create'), 403);
+
+        $reserva = $this->producto->reservaActiva()->first();
+
+        return $reserva ? redirect()->route('ventas.crear', ['reserva' => $reserva->id]) : null;
     }
 
     public function updatedEstado()
@@ -334,7 +370,12 @@ class ProductoEstadoModal extends Component
         }
 
         if (in_array($this->estado, ProductoEstado::soloPorDocumento(), true)) {
-            throw ValidationException::withMessages(['estado' => 'Ese estado lo pone una venta. Usa «Vender».']);
+            throw ValidationException::withMessages(['estado' => 'Ese estado lo pone una venta o una reserva. Usa «Vender» o «Reservar».']);
+        }
+
+        // Sacarlo de Reserva a mano dejaria la reserva activa con su seña.
+        if ($this->estadoOrigen === ProductoEstado::Reserva->value) {
+            throw ValidationException::withMessages(['estado' => 'El equipo está reservado: concreta la venta o cancela la reserva.']);
         }
 
         $stock = app(StockService::class);

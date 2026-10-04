@@ -113,4 +113,6 @@
     @livewire('producto.modals.producto-edit-sucursal-modal')
     @livewire('tecnico-producto.modals.reparacion-edit-modal')
     @livewire('producto.modals.producto-estado-masivo-modal')
+    @livewire('reserva.modals.reserva-create-modal')
+    @livewire('reserva.modals.reserva-cancelar-modal')
 </div>

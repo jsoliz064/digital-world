@@ -41,6 +41,32 @@
                             <x-danger-button wire:click="cancelarVenta()" wire:loading.attr="disabled">Anular la venta de este equipo</x-danger-button>
                         </div>
                     @endcan
+                @elseif ($this->esReservado())
+                    {{-- Reserva: la escribe ReservaService. Aqui se ve, se concreta o se cancela. --}}
+                    <div class="m-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">
+                        @if ($reserva)
+                            <p class="font-semibold">Reservado para {{ $reserva->cliente?->nombre }}</p>
+                            <p class="mt-1">
+                                Seña Bs {{ number_format((float) $reserva->sena, 2) }} en {{ $reserva->metodo?->nombre }}
+                                · desde el {{ $reserva->created_at->format('d/m/Y') }}
+                                @if ($reserva->nota) · {{ $reserva->nota }} @endif
+                            </p>
+                        @else
+                            <p class="font-semibold">En reserva, pero sin reserva activa registrada.</p>
+                        @endif
+                    </div>
+                    @if ($reserva)
+                        <div class="m-2 flex flex-wrap gap-2">
+                            @can('venta.create')
+                                <x-primary-button wire:click="concretarReserva()" wire:loading.attr="disabled">
+                                    <i class="fa-solid fa-cash-register mr-1"></i> Concretar la venta
+                                </x-primary-button>
+                            @endcan
+                            @can('reserva.cancelar')
+                                <x-danger-button wire:click="cancelarReserva()" wire:loading.attr="disabled">Cancelar la reserva</x-danger-button>
+                            @endcan
+                        </div>
+                    @endif
                 @else
                     <div class="m-2">
                         <x-label>Estado:</x-label>
@@ -49,27 +75,29 @@
                     </div>
 
                     @if ($producto->estaDisponible())
-                        @can('venta.create')
-                            <div class="m-2">
+                        <div class="m-2 flex flex-wrap gap-2">
+                            @can('venta.create')
                                 <x-primary-button wire:click="vender()" wire:loading.attr="disabled">
                                     <i class="fa-solid fa-cash-register mr-1"></i> Vender este equipo
                                 </x-primary-button>
-                            </div>
-                        @endcan
+                            @endcan
+                            @can('reserva.create')
+                                <x-secondary-button wire:click="reservar()" wire:loading.attr="disabled">
+                                    <i class="fa-solid fa-bookmark mr-1"></i> Reservar
+                                </x-secondary-button>
+                            @endcan
+                        </div>
                     @endif
 
                     <hr>
 
-                    @if (in_array($estado, ['Fuera', 'Roto', 'Reserva'], true))
+                    @if (in_array($estado, ['Fuera', 'Roto'], true))
                         <div class="m-2">
                             <x-label>
-                                @if ($estado === 'Fuera') ¿A quién se le dio o dónde está? @elseif ($estado === 'Roto') ¿Qué tiene? @else ¿Quién lo reserva? @endif
+                                @if ($estado === 'Fuera') ¿A quién se le dio o dónde está? @else ¿Qué tiene? @endif
                             </x-label>
                             <x-input type="text" wire:model="nota" class="w-full"></x-input>
                             <x-input-error for="nota"></x-input-error>
-                            @if ($estado === 'Reserva')
-                                <p class="mt-1 text-xs text-gray-500">Un equipo reservado no aparece para vender ni en el catálogo. La seña llega con el módulo de cobros.</p>
-                            @endif
                         </div>
                         @if ($estado === 'Fuera' && $estadoOrigen === 'Fuera')
                             <div class="m-2">
@@ -282,7 +310,7 @@
                     Cerrar
                 </x-secondary-button>
 
-                @unless ($this->esVendido())
+                @unless ($this->esVendido() || $this->esReservado())
                     <x-primary-button class="ml-2" wire:click="update()" wire:loading.attr="disabled">
                         Actualizar
                     </x-primary-button>

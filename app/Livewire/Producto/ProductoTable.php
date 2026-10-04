@@ -138,7 +138,8 @@ class ProductoTable extends DataTableComponent
                 ->label(function ($row) {
                     $compra = $row->compraDetalle?->compra;
                     if (!$compra) {
-                        return '';
+                        // Sin compra: lo entrego un cliente en permuta.
+                        return $row->permuta ? "Permuta, venta #{$row->permuta->venta_id}" : '';
                     }
                     return "Compra #{$compra->id}, {$compra->proveedor?->nombre}, " . $compra->fecha?->format('d/m/Y');
                 })
@@ -294,7 +295,7 @@ class ProductoTable extends DataTableComponent
         return Producto::query()
             // La compra y la venta salen de sus lineas: cargadas de una vez,
             // sin un find por fila.
-            ->with(['compraDetalle.compra.proveedor', 'ventaDetalle'])
+            ->with(['compraDetalle.compra.proveedor', 'ventaDetalle', 'permuta'])
             // Los distintivos se DEDUCEN de si hay una reparacion pendiente de
             // ese tipo, en vez de leer una bandera guardada. La bandera
             // `garantia_activa` solo se apagaba desde su propio modal, asi que

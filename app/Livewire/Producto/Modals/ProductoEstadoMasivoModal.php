@@ -86,15 +86,14 @@ class ProductoEstadoMasivoModal extends Component
             return ProductoTipoVenta::toSelectArray()->toArray();
         }
 
-        // Subconjunto deliberado: Vendido, Credito y Reparacion quedan fuera
-        // porque arrastran efectos (crear la venta, crear la reparacion,
-        // descontar repuestos) que este modal no ejecuta. Se leen del enum para
-        // no repetir cadenas sueltas.
+        // Subconjunto deliberado: Vendido, Credito, Reserva y Reparacion quedan
+        // fuera porque arrastran efectos (la venta, la reserva con su seña, la
+        // reparacion con sus repuestos) que este modal no ejecuta. Se leen del
+        // enum para no repetir cadenas sueltas.
         return collect([
             ProductoEstado::Inventario,
             ProductoEstado::Fuera,
             ProductoEstado::Roto,
-            ProductoEstado::Reserva,
         ])->mapWithKeys(fn($caso) => [$caso->value => $caso->label()])->toArray();
     }
 
