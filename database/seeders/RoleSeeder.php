@@ -103,6 +103,18 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'venta.detalle'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'venta.detalle.delete'])->syncRoles([$role1, $role2]);
 
+        //COBRANZAS (pagos de ventas a credito). Cobrar, quien puede vender;
+        // anular un pago, solo el Administrador (docs/11, pregunta 9).
+        Permission::firstOrCreate(['name' => 'cobranza.index'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'pago.create'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'pago.anular'])->syncRoles([$role1]);
+
+        //METODOS DE PAGO
+        Permission::firstOrCreate(['name' => 'metodo-pago.index'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'metodo-pago.create'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'metodo-pago.edit'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'metodo-pago.delete'])->syncRoles([$role1]);
+
         // Estados que el usuario puede ELEGIR en el selector (filtra por estos).
         // Vendido y Credito solo los escribe una venta: no tienen permiso de
         // seleccion (ProductoEstado::soloPorDocumento()).

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\ArticuloTipo;
 use App\Enums\LineaTipo;
+use App\Enums\PagoMomento;
 use App\Enums\ProductoEstado;
 use App\Models\Producto;
 use App\Models\User;
@@ -30,6 +31,9 @@ use Illuminate\Validation\ValidationException;
  *    anularla lo devuelve ahi.
  *  - Ningun metodo abre transaccion: la abre el componente, que tambien
  *    resuelve la idempotencia (GuardadoIdempotenteTrait).
+ *  - Lo cobrado lo escribe PagoService. Si queda saldo, la venta esta a
+ *    credito (exige cliente) y sus equipos van a Credito en vez de Vendido; se
+ *    decide ANTES de venderlos, para que el historial no anote dos cambios.
  *
  * Formato de una linea que llega de la pantalla:
  *   ['tipo' => 'Producto'|'Repuesto'|'Accesorio', 'id' => int, 'cantidad' => int,
@@ -41,6 +45,7 @@ class VentaService
         private EstadoProductoService $estados,
         private StockService $stock,
         private RepuestosDeReparacionService $cobros,
+        private PagoService $pagos,
     ) {}
 
     /**
@@ -49,8 +54,9 @@ class VentaService
      * @param  array  $cabecera  sucursal_id, cliente_id, cliente (texto), descuento, mano_obra
      * @param  array  $lineas    ver el docblock de la clase
      * @param  array  $cobros    cobros de taller (formato de RepuestosDeReparacionService)
+     * @param  array  $pagos     lo cobrado al vender (formato de PagoService::registrar)
      */
-    public function registrar(array $cabecera, array $lineas, array $cobros, User $user, ?string $clave = null): Venta
+    public function registrar(array $cabecera, array $lineas, array $cobros, array $pagos, User $user, ?string $clave = null): Venta
     {
         $lineas = $this->normalizar($lineas);
         $sucursalId = (int) $cabecera['sucursal_id'];
@@ -71,8 +77,13 @@ class VentaService
             'mano_obra' => round((float) ($cabecera['mano_obra'] ?? 0), 2),
         ] + $this->totalesPrevios($lineas, $equipos, $articulos, $cabecera));
 
+        // A credito si lo cobrado no cubre el total (con los cobros de taller).
+        $totalPrevisto = (float) $venta->total + $this->cobros->totalPrevisto($cobros);
+        $cobrado = round(array_sum(array_map(fn($p) => (float) ($p['monto'] ?? 0), $pagos)), 2);
+        $destino = $cobrado < round($totalPrevisto, 2) ? ProductoEstado::Credito : ProductoEstado::Vendido;
+
         foreach ($lineas->where('tipo', LineaTipo::Producto->value)->sortBy('id') as $linea) {
-            $this->venderEquipo($venta, $linea);
+            $this->venderEquipo($venta, $linea, $destino);
         }
 
         foreach ($lineas->where('tipo', '!=', LineaTipo::Producto->value)->sortBy(fn($l) => $l['tipo'] . ':' . str_pad($l['id'], 12, '0', STR_PAD_LEFT)) as $linea) {
@@ -84,7 +95,8 @@ class VentaService
         $this->stock->recalcularTotales();
         $venta->recalcularTotales();
 
-        return $venta;
+        // Despues de los totales: el saldo se mide contra el total real.
+        return $this->pagos->registrar($venta, $pagos, PagoMomento::Venta, $user, $clave);
     }
 
     /**
@@ -140,8 +152,10 @@ class VentaService
         $nuevas = $lineas->diffKeys($actuales);
         [, $articulos] = $this->leerCostos($nuevas);
 
+        // Los equipos nuevos entran como el resto de la venta; si el nuevo total
+        // cambia la cuenta, sincronizar() los mueve al final.
         foreach ($nuevas->where('tipo', LineaTipo::Producto->value)->sortBy('id') as $linea) {
-            $this->venderEquipo($venta, $linea);
+            $this->venderEquipo($venta, $linea, $venta->estaPagada() ? ProductoEstado::Vendido : ProductoEstado::Credito);
         }
 
         foreach ($nuevas->where('tipo', '!=', LineaTipo::Producto->value) as $clave => $linea) {
@@ -166,20 +180,24 @@ class VentaService
         $this->stock->recalcularTotales();
         $venta->recalcularTotales();
 
-        return $venta;
+        // Subir el total de una venta pagada la vuelve a credito; bajarlo puede
+        // saldarla. recalcularTotales() ya rechazo bajarlo por debajo de lo cobrado.
+        return $this->pagos->sincronizar($venta);
     }
 
     // ------------------------------------------------------------------ lineas
 
-    private function venderEquipo(Venta $venta, array $linea): void
+    private function venderEquipo(Venta $venta, array $linea, ProductoEstado $destino): void
     {
         // vender() bloquea el producto, exige que este disponible (y no dado de
         // baja) y anota en su bitacora desde el mismo $destino que el update.
         $producto = $this->estados->vender(
             $linea['id'],
-            "Vendido. Venta #{$venta->id}" . ($venta->nombreCliente() ? ', ' . $venta->nombreCliente() : '')
+            ($destino === ProductoEstado::Credito ? 'Vendido a crédito' : 'Vendido') . ". Venta #{$venta->id}"
+                . ($venta->nombreCliente() ? ', ' . $venta->nombreCliente() : '')
                 . ', Bs ' . number_format(max(0, $linea['precio'] - $linea['descuento']), 2),
             ['venta_id' => $venta->id, 'sucursal_id' => $venta->sucursal_id],
+            $destino,
         );
 
         VentaDetalle::create([

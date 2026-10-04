@@ -33,6 +33,10 @@ enum BitacoraEvento: string
     case Regalo = 'regalo';
     case RegaloQuitado = 'regalo-quitado';
     case StockBaja = 'stock-baja';
+    // El dinero que entra por una venta (PagoService). No es 'cobro': ese ya es
+    // el cobro de las piezas de una reparacion.
+    case Pago = 'pago';
+    case PagoAnulado = 'pago-anulado';
 
     public function label(): string
     {
@@ -50,6 +54,8 @@ enum BitacoraEvento: string
             self::Regalo => 'Regalo agregado',
             self::RegaloQuitado => 'Regalo quitado',
             self::StockBaja => 'Baja de stock',
+            self::Pago => 'Pago recibido',
+            self::PagoAnulado => 'Pago anulado',
         };
     }
 
@@ -70,6 +76,8 @@ enum BitacoraEvento: string
             self::Regalo => 'bg-pink-100 text-pink-800',
             self::RegaloQuitado => 'bg-fuchsia-100 text-fuchsia-800',
             self::StockBaja => 'bg-red-100 text-red-800',
+            self::Pago => 'bg-teal-100 text-teal-800',
+            self::PagoAnulado => 'bg-rose-100 text-rose-800',
         };
     }
 

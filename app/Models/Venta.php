@@ -4,11 +4,17 @@ namespace App\Models;
 
 use App\Enums\LineaTipo;
 use App\Traits\Auditable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Una venta: equipos, repuestos y accesorios en un solo documento, en Bs. Lo
- * vendido vive en ventas_detalles, que escribe solo VentaService.
+ * vendido vive en ventas_detalles, que escribe solo VentaService; lo cobrado,
+ * en ventas_pagos, que escribe solo PagoService.
+ *
+ * `saldo` es una columna GENERADA (total - pagado): no va en $fillable, y no
+ * se refresca en el modelo hasta releerlo.
  */
 class Venta extends Model
 {
@@ -33,6 +39,12 @@ class Venta extends Model
         'user_id',
         'sucursal_id',
         'clave_idempotencia',
+        'pagado',
+        'pagada_at',
+    ];
+
+    protected $casts = [
+        'pagada_at' => 'datetime',
     ];
 
     /**
@@ -75,6 +87,33 @@ class Venta extends Model
         return $this->belongsTo(Sucursal::class, 'sucursal_id');
     }
 
+    public function pagos()
+    {
+        return $this->hasMany(VentaPago::class, 'venta_id');
+    }
+
+    /** Lo que falta cobrar, sin depender de que `saldo` (generada) este releida. */
+    public function saldoPendiente(): float
+    {
+        return round(max(0, (float) $this->total - (float) $this->pagado), 2);
+    }
+
+    public function aCredito(): bool
+    {
+        return $this->saldoPendiente() > 0;
+    }
+
+    public function estaPagada(): bool
+    {
+        return !$this->aCredito();
+    }
+
+    /** Las que tienen algo por cobrar: la pantalla de cobranzas y la deuda del cliente. */
+    public function scopeConSaldo(Builder $query): Builder
+    {
+        return $query->where('ventas.saldo', '>', 0);
+    }
+
     public function ganancia(): float
     {
         return round((float) $this->total - (float) $this->costo_total, 2);
@@ -95,8 +134,22 @@ class Venta extends Model
 
         $manoObra = (float) $this->mano_obra;
 
-        $this->subtotal = round((float) $sumas->subtotal, 2);
-        $this->total = round($this->subtotal - (float) $this->descuento + $manoObra, 2);
+        $subtotal = round((float) $sumas->subtotal, 2);
+        $total = round($subtotal - (float) $this->descuento + $manoObra, 2);
+
+        // Un solo sitio para "no se puede bajar el total por debajo de lo ya
+        // cobrado": editar, quitar una linea, descontar... Sin esto, el CHECK
+        // ventas_pagado_rango lo impediria con un error de SQL ilegible.
+        if ($total < (float) $this->pagado) {
+            throw ValidationException::withMessages([
+                'detalles' => 'La venta #' . $this->id . ' ya tiene Bs ' . number_format((float) $this->pagado, 2)
+                    . ' cobrados y el total quedaría en Bs ' . number_format($total, 2)
+                    . '. Anula un pago antes de bajar el total.',
+            ]);
+        }
+
+        $this->subtotal = $subtotal;
+        $this->total = $total;
         $this->costo_total = round((float) $sumas->costo + $manoObra, 2);
         $this->save();
     }

@@ -207,6 +207,29 @@ class RepuestosDeReparacionService
      * Se descartan las lineas sin precio positivo: un cobro de cero no es un
      * cobro.
      */
+    /**
+     * Lo que sumaran a la venta estas lineas de cobro, con la cantidad leida de
+     * la base (como registrar()). VentaService lo necesita ANTES de vender los
+     * equipos, para saber si la venta queda a credito.
+     */
+    public function totalPrevisto(array $lineas): float
+    {
+        $lineas = $this->normalizar($lineas);
+
+        if (empty($lineas)) {
+            return 0.0;
+        }
+
+        $cantidades = ProductoReparacionRepuesto::whereIn('id', array_keys($lineas))->pluck('cantidad', 'id');
+        $total = 0.0;
+
+        foreach ($cantidades as $id => $cantidad) {
+            $total += round($lineas[$id] * (int) $cantidad, 2);
+        }
+
+        return round($total, 2);
+    }
+
     private function normalizar(array $lineas): array
     {
         $plano = [];

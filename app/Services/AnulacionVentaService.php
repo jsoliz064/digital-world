@@ -18,6 +18,12 @@ use App\Models\VentaDetalle;
  *   - un repuesto o accesorio: el stock vuelve a la sucursal DE LA LINEA (no a
  *     la de la venta ni a la del equipo), y se borra la linea.
  *
+ * Los pagos: anular la venta entera (o su ultima linea) los borra, uno por uno
+ * en la bitacora, porque se entiende que el dinero se devolvio. Anular una
+ * linea suelta no puede dejar el total por debajo de lo cobrado
+ * (Venta::recalcularTotales lo rechaza) y despues PagoService::sincronizar()
+ * deja la venta pagada o a credito segun el saldo nuevo.
+ *
  * Si la venta queda sin lineas, la cabecera se borra: una venta sin lineas es
  * basura que se lee como "no se guardo". Las lineas tienen la FK de venta en
  * RESTRICT a proposito: un camino que olvidara anularlas antes falla con un
@@ -32,6 +38,7 @@ class AnulacionVentaService
         private EstadoProductoService $estados,
         private RepuestosDeReparacionService $repuestos,
         private StockService $stock,
+        private PagoService $pagos,
     ) {}
 
     /**
@@ -47,6 +54,7 @@ class AnulacionVentaService
         $this->stock->recalcularTotales();
 
         if ($venta->detalles()->doesntExist()) {
+            $this->pagos->anularTodos($venta, "se anuló la última línea de la venta #{$venta->id}.");
             $venta->delete();
 
             return true;
@@ -54,6 +62,7 @@ class AnulacionVentaService
 
         $venta->refresh();
         $venta->recalcularTotales();
+        $this->pagos->sincronizar($venta);
 
         return false;
     }
@@ -72,6 +81,7 @@ class AnulacionVentaService
         }
 
         $this->stock->recalcularTotales();
+        $this->pagos->anularTodos($venta, "se anuló la venta #{$venta->id}.");
         $venta->delete();
     }
 

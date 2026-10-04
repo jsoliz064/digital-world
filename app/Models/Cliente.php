@@ -29,6 +29,27 @@ class Cliente extends Model
         return $this->hasMany(Venta::class, 'cliente_id');
     }
 
+    /** Lo que debe: la suma de los saldos de sus ventas a credito. */
+    public function deuda(): float
+    {
+        return round((float) $this->ventas()->conSaldo()->sum('saldo'), 2);
+    }
+
+    /**
+     * Las lineas de equipo con garantia vigente (vence hoy o despues), con su
+     * venta y su producto: es lo que se mira cuando el cliente vuelve.
+     */
+    public function garantiasVigentes()
+    {
+        return VentaDetalle::query()
+            ->with(['producto.modelo', 'venta'])
+            ->whereNotNull('producto_id')
+            ->whereDate('garantia_fecha_exp', '>=', now()->toDateString())
+            ->whereHas('venta', fn($q) => $q->where('cliente_id', $this->id))
+            ->orderBy('garantia_fecha_exp')
+            ->get();
+    }
+
     /** Cuantas ordenes tiene, para el modal de eliminar. */
     public function cantidadOrdenes(): int
     {
