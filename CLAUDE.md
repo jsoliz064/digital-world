@@ -87,6 +87,7 @@ Todo lo que le pasa a un teléfono, a un artículo, a un cliente, a una venta, a
 | la baja de un equipo o de unidades | [BajaService](app/Services/BajaService.php) |
 | los regalos de un equipo | [ProductoRegalosService](app/Services/ProductoRegalosService.php) |
 | buscar por IMEI / UPC / SKU / nombre | [BuscadorArticulosService](app/Services/BuscadorArticulosService.php) |
+| `ventas_pagos`, `ventas.pagado`, `ventas.pagada_at` | [PagoService](app/Services/PagoService.php) |
 
 **Ningún servicio abre transacción**: la abre el componente, para que un fallo revierta el stock **y** el documento. Los componentes no escriben esas tablas por su cuenta: si una pantalla necesita algo nuevo, va al servicio.
 
@@ -193,6 +194,20 @@ El fallo: se registra una venta, el servidor hace COMMIT, y la respuesta no lleg
 
 [GuardadoIdempotenteTrait](app/Traits/GuardadoIdempotenteTrait.php): `#[Locked] public string $claveIdempotencia` sembrada con `nuevaClaveIdempotencia()` **en `mount()`, nunca en `render()`**, `yaGuardado()` antes de la transacción y `esClaveDuplicada()` (busca `clave_idem` en el nombre del índice) en el `catch (QueryException)`. Lo usan `VentaForm` y `CompraForm` al crear. La edición va por **clave natural** (`vd_venta_articulo_unico` / `cd_compra_articulo_unico`) y el alta de teléfonos por el IMEI.
 
+### Pagos y crédito: `PagoService`
+
+Lo cobrado de una venta vive en `ventas_pagos` (al vender, `momento` Venta; después, `momento` Cobro) y lo escribe **solo** [PagoService](app/Services/PagoService.php). En `ventas` quedan `pagado` (la suma, cacheada), `saldo` (**columna generada** `total - pagado`: no va en `$fillable` y no se refresca en el modelo hasta releerlo; para lógica usa `Venta::saldoPendiente()`) y `pagada_at`.
+
+- **«Pago» y no «cobro» en el código**: «cobro» ya es el cobro de las piezas de una reparación (una línea de venta, `BitacoraEvento::Cobro`). En pantalla dice «Cobrar» y «Cobranzas»; los eventos de bitácora son `pago` / `pago-anulado`, sobre la **venta**.
+- **`sincronizar()` es el único que decide el estado de cobro**: recalcula `pagado`, pone `pagada_at` al llegar a saldo cero (es la fecha que liberará la comisión, etapa 7) y mueve los equipos **Credito ↔ Vendido**. Lo llaman registrar y anular un pago, `VentaService::actualizar()` y `AnulacionVentaService::anularLinea()`. Una venta con saldo **exige `cliente_id`**.
+- **VentaService decide Vendido o Credito ANTES de vender los equipos** (con el total previsto, incluidos los cobros de taller), para que el historial del equipo no anote Vendido y enseguida Credito.
+- **No se baja el total por debajo de lo cobrado**: lo rechaza `Venta::recalcularTotales()` con un mensaje, antes de que el `CHECK ventas_pagado_rango` lo haga con un error de SQL.
+- **Anular la venta entera (o su última línea) borra sus pagos** (`anularTodos()`), uno por uno en la bitácora: se entiende que el dinero se devolvió. La FK de `ventas_pagos.venta_id` va en RESTRICT.
+- **Idempotencia del cobro**: `CobroModal` reparte una clave entre los pagos que crea; `UNIQUE (clave_idempotencia, venta_id, metodo_pago_id)`. Por eso `PagoService` junta en uno los pagos del mismo método.
+- **Orden de bloqueo**: la venta, después sus equipos por id, después el stock.
+- Los métodos de pago (`metodos_pago`) se desactivan, no se borran, si tienen pagos: `MetodoPago::activos()` para cobrar, todos para los filtros.
+- Refrescar tras un pago: todos los componentes que muestran saldo escuchan **`pagosActualizados`**.
+
 ### El lector de códigos: la cámara imita a la pistola
 
 La pistola USB "teclea" el código y aprieta Enter. La cámara del celular hace **exactamente lo mismo**, así que el servidor tiene un solo camino para las dos.
@@ -217,7 +232,7 @@ Elegirlo es [ClienteBuscadorTrait](app/Traits/ClienteBuscadorTrait.php) + [x-cli
 
 ### El dinero: todo en Bs
 
-**No hay tipo de cambio en ninguna parte del inventario, la compra ni la venta.** El dólar volverá solo como forma de pago de una venta (etapa 5). `ventas.total = subtotal − descuento + mano_obra`, y `costo_total = Σ subtotal_costo + mano_obra`: la mano de obra suma al total **y** al costo, para cancelarse en la ganancia. Los cobros de piezas van con **costo 0** por la misma razón. Las reparaciones: `costo_total = costo (mano de obra) + costo_repuestos`.
+**No hay tipo de cambio en ninguna parte del inventario, la compra ni la venta.** El dólar volverá solo como forma de pago de una venta (etapa 5). `ventas.total = subtotal − descuento + mano_obra` (y `saldo = total − pagado`, ver «Pagos y crédito»), y `costo_total = Σ subtotal_costo + mano_obra`: la mano de obra suma al total **y** al costo, para cancelarse en la ganancia. Los cobros de piezas van con **costo 0** por la misma razón. Las reparaciones: `costo_total = costo (mano de obra) + costo_repuestos`.
 
 [ReporteIndex](app/Livewire/Reporte/ReporteIndex.php) es **una familia de consultas** sobre `ventas_detalles` / `compras_detalles` filtrada por `tipo`; el descuento de cabecera se prorratea entre **todas** las líneas de la venta. No hay respaldo de "20 % de ganancia" para equipos sin costo: la línea congela el costo real.
 
@@ -258,7 +273,7 @@ $this->dispatch('filtersUpdated', [...]);          // Index -> Table
 - **Un SKU o UPC vacío se guarda como NULL** (`NormalizaCodigosTrait`): con `''` el segundo artículo sin SKU choca con el índice único.
 - **Los índices únicos son la garantía de verdad, no la regla `unique:`.** Los de dominio: `productos.imei`, `productos_sku_unico` (y los de repuestos y accesorios), `ventas_detalles_producto_unico` (un teléfono, una sola venta; anular **borra** la línea, así que revender funciona), `compras_detalles_producto_unico`, `vd_reparacion_repuesto_unico`, `vd_venta_articulo_unico`, `cd_compra_articulo_unico`, `clave_idempotencia` en `ventas` y `compras`, y los dos de `stock_sucursales`.
 - **MySQL prohíbe acciones referenciales en columnas que usa un `CHECK` o una columna generada.** Por eso las FK de artículo y de cabecera de las líneas y del stock van en **RESTRICT**: borrar un artículo con movimientos lo impide el código con un mensaje claro, no una cascada.
-- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
+- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra, `pagado` contra sus pagos, `pagada_at` contra el saldo, equipos en Credito/Vendido que no coinciden con el saldo de su venta y ventas a crédito sin cliente. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
 - **`Venta::cliente` es una columna, no la relación.** La ficha es `fichaCliente()` y lo que se pinta sale de `nombreCliente()`.
 - **Dentro de una etiqueta `<x-…>` solo valen `@class` y `@style`.** Cualquier otra directiva —`@disabled`, `@checked`— impide que `ComponentTagCompiler` compile el componente, y al navegador le llega un `<x-checkbox>` **literal**, sin ningún error. En un componente va `:disabled="$expr"`; `@disabled(...)` solo sobre HTML plano. Para comprobarlo: tras `php artisan view:cache`, ningún archivo de `storage/framework/views` debe contener `<x-`.
 - **El Observer no ve lo que no pasa por Eloquent.** `DB::table()->update()`, `DB::statement()` y el `update()` del query builder no dejan fila en la bitácora. Si el hecho importa, se registra a mano.

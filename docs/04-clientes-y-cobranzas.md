@@ -86,6 +86,17 @@ POR COBRAR                          Total: 8.450,00 Bs
 
 Ordenable por antigüedad y por monto, y filtrable por cliente y por vendedor.
 
+### Cómo quedó construido
+
+- **El cobro se registra en la misma venta**, con uno o varios métodos de pago (Efectivo, QR, Transferencia, Tarjeta, o los que el negocio agregue desde **Métodos de pago**). Si se cobra todo, la venta queda pagada; si queda saldo, queda **a crédito** y el cliente con ficha pasa a ser obligatorio.
+- **Al elegir el cliente en la venta se ve lo que ya debe.** El sistema avisa, no bloquea.
+- **Un cobro posterior** se hace desde la ficha del cliente, desde la pantalla de cobranzas o desde el detalle de la venta. Se escribe el monto recibido y el sistema lo reparte de la venta más antigua a la más nueva; cada venta se puede corregir a mano.
+- **Si el celular pierde la señal y se reintenta**, el cobro no se registra dos veces.
+- **Anular un pago** (solo el Administrador) devuelve ese saldo a la venta: si estaba pagada, vuelve a crédito.
+- **Anular una venta con pagos** anula también los pagos: se entiende que el dinero se devolvió. Queda registrado en la bitácora.
+- **No se puede bajar el total de una venta** (editándola o anulando una línea) por debajo de lo ya cobrado: primero hay que anular un pago.
+- Las **reservas** todavía no aparecen en la ficha: la reserva con seña llega en la etapa de ventas.
+
 ---
 
 ## Cómo queda el trabajo diario

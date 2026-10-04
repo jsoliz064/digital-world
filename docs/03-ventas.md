@@ -78,6 +78,8 @@ Total de la venta      3.500 Bs
 
 Si lo cobrado es menor que el total, la venta queda **a crédito**, con su saldo pendiente. Ver [Clientes y cobranzas](04-clientes-y-cobranzas.md).
 
+En la pantalla de venta, el cobro empieza con una sola fila de Efectivo por el total, que lo sigue mientras no se toque: la venta de contado en efectivo no pide escribir nada. Con «Agregar método» se suman otros, y el sistema muestra lo cobrado y lo que queda a crédito.
+
 ### Permuta
 
 Cuando el cliente entrega un equipo como parte de pago:
