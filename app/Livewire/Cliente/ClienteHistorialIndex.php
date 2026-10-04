@@ -9,14 +9,13 @@ use Livewire\Component;
 
 /**
  * La ficha del cliente: sus cifras, sus compras, sus pagos y sus garantias
- * vigentes (docs/04). Las reservas no salen todavia: la reserva no tiene
- * cliente hasta la etapa 5 (seña).
+ * vigentes (docs/04), y sus reservas con seña (docs/03).
  */
 class ClienteHistorialIndex extends Component
 {
     public $cliente;
 
-    /** compras | pagos | garantias */
+    /** compras | pagos | reservas | garantias */
     public string $pestana = 'compras';
 
     public function mount($cliente_id)
@@ -26,7 +25,7 @@ class ClienteHistorialIndex extends Component
 
     public function verPestana(string $pestana): void
     {
-        $this->pestana = in_array($pestana, ['compras', 'pagos', 'garantias'], true) ? $pestana : 'compras';
+        $this->pestana = in_array($pestana, ['compras', 'pagos', 'reservas', 'garantias'], true) ? $pestana : 'compras';
     }
 
     public function cobrar(): void
@@ -37,6 +36,7 @@ class ClienteHistorialIndex extends Component
     }
 
     #[On('pagosActualizados')]
+    #[On('reservasActualizadas')]
     public function refrescar(): void
     {
     }
@@ -63,6 +63,10 @@ class ClienteHistorialIndex extends Component
             'deuda' => round((float) ($fila->deuda ?? 0), 2),
             'ultimaCompra' => $fila->ultima ?? null,
             'garantias' => $this->pestana === 'garantias' ? $this->cliente->garantiasVigentes() : collect(),
+            'reservas' => $this->pestana === 'reservas'
+                ? $this->cliente->reservas()->with(['producto.modelo', 'metodo'])->orderByRaw("estado = 'Activa' DESC")->latest('id')->get()
+                : collect(),
+            'reservasActivas' => $this->cliente->reservas()->activas()->count(),
         ]);
     }
 }

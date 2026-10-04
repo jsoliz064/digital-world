@@ -58,6 +58,8 @@ class CompraLoteProductoEditModal extends Component
         $this->producto['status'] = $producto->estado;
         $this->producto['disponible_catalogo'] = (bool)$producto->disponible_catalogo;
         $this->producto['sin_reparacion'] = (bool)$producto->sin_reparacion;
+        // Recibido en permuta: su costo ES el pago de la venta y no se edita aqui.
+        $this->producto['es_permuta'] = $producto->permuta()->exists();
 
         // Activas mas la actual: si el equipo esta en una sucursal ya
         // desactivada, el select no puede quedar sin su opcion.
@@ -154,7 +156,8 @@ class CompraLoteProductoEditModal extends Component
                 'bateria_porcentaje' => $this->producto['bateria_porcentaje'],
                 'sku' => $this->producto['sku'],
                 'upc' => $this->producto['upc'] ?? null,
-                'costo_unidad' => $this->producto['costo_unidad'],
+                // El de un equipo recibido en permuta no cambia: es el pago de la venta.
+                'costo_unidad' => $product->permuta()->exists() ? $product->costo_unidad : $this->producto['costo_unidad'],
                 'tipo_venta' => $this->producto['tipo_venta'],
                 'precio_cliente' => $this->producto['precio_cliente'],
                 'precio_vendedor' => $this->producto['precio_vendedor'],

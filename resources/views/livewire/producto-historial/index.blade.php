@@ -48,6 +48,13 @@
                 </p>
                 <p class="text-sm text-gray-600 dark:text-gray-300">{{ $compra->proveedor?->nombre }} · {{ $compra->fecha?->format('d/m/Y') }}</p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">Costo de la línea: {{ $bs($producto->compraDetalle->costo) }}</p>
+            @elseif ($producto->permuta)
+                {{-- No vino de una compra: lo entrego un cliente como parte de pago. --}}
+                <p class="mt-1 font-semibold text-gray-900 dark:text-gray-100">
+                    Recibido en permuta ·
+                    <a href="{{ route('ventas.detalles', $producto->permuta->venta_id) }}" class="underline hover:text-brand-700">Venta #{{ $producto->permuta->venta_id }}</a>
+                </p>
+                <p class="text-sm text-gray-600 dark:text-gray-300">{{ $producto->permuta->fecha->format('d/m/Y') }} · valor reconocido {{ $bs($producto->permuta->monto) }}</p>
             @else
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Sin compra registrada.</p>
             @endif

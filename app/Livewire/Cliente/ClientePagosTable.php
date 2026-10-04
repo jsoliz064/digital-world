@@ -33,7 +33,8 @@ class ClientePagosTable extends DataTableComponent
             ->setSearchDisabled()
             ->setEmptyMessage('Este cliente todavía no hizo ningún pago.');
 
-        $this->setAdditionalSelects(['ventas_pagos.id', 'ventas_pagos.venta_id', 'ventas_pagos.nota']);
+        $this->setAdditionalSelects(['ventas_pagos.id', 'ventas_pagos.venta_id', 'ventas_pagos.nota', 'ventas_pagos.producto_id',
+            'ventas_pagos.moneda', 'ventas_pagos.monto_moneda', 'ventas_pagos.tipo_cambio', 'ventas_pagos.metodo_pago_id']);
 
         $this->setFooterTrAttributes(fn($rows) => [
             'default' => false,
@@ -54,7 +55,7 @@ class ClientePagosTable extends DataTableComponent
 
     public function builder(): Builder
     {
-        return $this->scopedQuery();
+        return $this->scopedQuery()->with(['metodo', 'producto.modelo']);
     }
 
     public function columns(): array
@@ -70,7 +71,9 @@ class ClientePagosTable extends DataTableComponent
                 ->format(fn($value) => '<a href="' . route('ventas.detalles', $value) . '" class="text-brand-600 hover:underline dark:text-brand-400">#' . (int) $value . '</a>')
                 ->html(),
 
-            Column::make('Método', 'metodo.nombre')->sortable(),
+            Column::make('Método', 'metodo.nombre')
+                ->sortable()
+                ->format(fn($value, $row) => e($row->descripcion())),
 
             Column::make('Monto', 'monto')
                 ->sortable()
@@ -86,7 +89,7 @@ class ClientePagosTable extends DataTableComponent
                 ->collapseOnTablet(),
 
             Column::make('')
-                ->label(fn($row) => auth()->user()->can('pago.anular')
+                ->label(fn($row) => auth()->user()->can('pago.anular') && !$row->esPermuta() && !$row->esSena()
                     ? '<button type="button" wire:click="anular(' . (int) $row->id . ')" class="text-xs text-red-600 hover:underline">Anular</button>'
                     : '')
                 ->html(),

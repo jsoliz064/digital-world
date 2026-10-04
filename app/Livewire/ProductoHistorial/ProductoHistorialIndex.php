@@ -24,6 +24,7 @@ class ProductoHistorialIndex extends Component
         $this->producto->load([
             'modelo', 'sucursal', 'bajaUser',
             'compraDetalle.compra.proveedor',
+            'permuta',
             'ventaDetalle.venta.user',
             'ventaDetalle.venta.fichaCliente',
             'regalos.accesorio', 'regalos.sucursal',

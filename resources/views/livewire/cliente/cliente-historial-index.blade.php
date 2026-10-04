@@ -57,7 +57,7 @@
     </div>
 
     <div class="flex gap-2 border-b border-gray-200 dark:border-gray-700">
-        @foreach (['compras' => 'Compras', 'pagos' => 'Pagos', 'garantias' => 'Garantías vigentes'] as $clave => $titulo)
+        @foreach (['compras' => 'Compras', 'pagos' => 'Pagos', 'reservas' => 'Reservas' . ($reservasActivas ? ' (' . $reservasActivas . ')' : ''), 'garantias' => 'Garantías vigentes'] as $clave => $titulo)
             <button type="button" wire:click="verPestana('{{ $clave }}')" @class([
                 'px-4 py-2 text-sm font-semibold border-b-2 -mb-px',
                 'border-brand-600 text-brand-700 dark:text-brand-300' => $pestana === $clave,
@@ -71,6 +71,37 @@
             @livewire('cliente.cliente-ordenes-table', ['cliente_id' => $cliente->id], key('ordenes-table-' . $cliente->id))
         @elseif ($pestana === 'pagos')
             @livewire('cliente.cliente-pagos-table', ['cliente_id' => $cliente->id], key('pagos-table-' . $cliente->id))
+        @elseif ($pestana === 'reservas')
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+                <ul class="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+                    @forelse ($reservas as $reserva)
+                        <li class="py-2 flex flex-wrap items-center justify-between gap-2" wire:key="reserva-{{ $reserva->id }}">
+                            <span>
+                                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                                    {{ trim(($reserva->producto?->modelo?->nombre ?? 'Equipo') . ' ' . $reserva->producto?->almacenamiento . ' ' . $reserva->producto?->color) }}
+                                </span>
+                                <span class="block text-xs text-gray-500 font-mono">IMEI {{ $reserva->producto?->imei }}</span>
+                                <span class="block text-xs text-gray-500">
+                                    {{ $reserva->created_at->format('d/m/Y') }} · seña Bs {{ number_format((float) $reserva->sena, 2) }} en {{ $reserva->metodo?->nombre }}
+                                    @if ($reserva->sena_destino) · {{ $reserva->sena_destino->label() }} @endif
+                                </span>
+                            </span>
+                            <span class="flex items-center gap-2">
+                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold {{ $reserva->estado->badgeClasses() }}">{{ $reserva->estado->label() }}</span>
+                                @if ($reserva->venta_id)
+                                    <a href="{{ route('ventas.detalles', $reserva->venta_id) }}" class="text-xs text-brand-600 hover:underline">Venta #{{ $reserva->venta_id }}</a>
+                                @elseif ($reserva->estaActiva())
+                                    @can('venta.create')
+                                        <a href="{{ route('ventas.crear', ['reserva' => $reserva->id]) }}" class="text-xs text-brand-600 hover:underline">Concretar</a>
+                                    @endcan
+                                @endif
+                            </span>
+                        </li>
+                    @empty
+                        <li class="py-2 text-gray-500">No tiene reservas.</li>
+                    @endforelse
+                </ul>
+            </div>
         @else
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
                 <ul class="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
