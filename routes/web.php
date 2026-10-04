@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\CobranzaController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MetodoPagoController;
 use App\Http\Controllers\ProductoCategoriaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProductoMarcaController;
@@ -59,6 +61,15 @@ Route::middleware([
     Route::get('sucursales', [SucursalController::class, 'index'])
         ->middleware('can:sucursal.index')
         ->name('sucursales');
+
+    Route::get('metodos-pago', [MetodoPagoController::class, 'index'])
+        ->middleware('can:metodo-pago.index')
+        ->name('metodos-pago');
+
+    // Lo que esta por cobrar: las ventas a credito (docs/04).
+    Route::get('cobranzas', [CobranzaController::class, 'index'])
+        ->middleware('can:cobranza.index')
+        ->name('cobranzas');
 
     Route::group(['prefix' => 'clientes'], function () {
         // Con can: desde el principio: el @can del blade solo esconde el enlace

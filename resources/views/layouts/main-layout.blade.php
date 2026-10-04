@@ -415,6 +415,18 @@
                                         </a>
                                     </li>
                                 @endcan
+                                @can('metodo-pago.index')
+                                    <li>
+                                        <a href="{{ route('metodos-pago') }}"
+                                            class="relative flex items-center h-10 pl-6 pr-6 text-sm hover:bg-brand-700 dark:hover:bg-gray-700 transition-colors duration-150 group">
+                                            <span class="inline-flex justify-center items-center ml-4">
+                                                <i
+                                                    class="fa-solid fa-credit-card text-lg w-5 h-5 flex items-center justify-center"></i>
+                                            </span>
+                                            <span class="ml-2 tracking-wide truncate">Métodos de pago</span>
+                                        </a>
+                                    </li>
+                                @endcan
                                 @can('rol.index')
                                     <li>
                                         <a href="{{ route('roles') }}"
@@ -577,6 +589,18 @@
                                         <i class="fas fa-cash-register text-lg w-5 h-5 flex items-center justify-center"></i>
                                     </span>
                                     <span class="ml-2 text-sm tracking-wide truncate">Ventas</span>
+                                </a>
+                            </li>
+                        @endcan
+
+                        @can('cobranza.index')
+                            <li>
+                                <a href="{{ route('cobranzas') }}"
+                                    class="relative flex flex-row items-center h-11 focus:outline-none hover:bg-brand-800 dark:hover:bg-gray-600 text-white-600 hover:text-white-800 border-l-4 border-transparent hover:border-brand-500 dark:hover:border-gray-800 pr-6">
+                                    <span class="inline-flex justify-center items-center ml-4">
+                                        <i class="fa-solid fa-hand-holding-dollar text-lg w-5 h-5 flex items-center justify-center"></i>
+                                    </span>
+                                    <span class="ml-2 text-sm tracking-wide truncate">Cobranzas</span>
                                 </a>
                             </li>
                         @endcan
