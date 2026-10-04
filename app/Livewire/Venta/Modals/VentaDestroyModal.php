@@ -48,7 +48,7 @@ class VentaDestroyModal extends Component
     public function render()
     {
         return view('livewire.venta.modals.venta-destroy-modal', [
-            'venta' => $this->openModal && $this->ventaId ? Venta::withCount('detalles')->find($this->ventaId) : null,
+            'venta' => $this->openModal && $this->ventaId ? Venta::withCount('detalles')->with('comision.user')->find($this->ventaId) : null,
         ]);
     }
 }

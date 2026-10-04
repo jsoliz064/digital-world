@@ -3,6 +3,7 @@
 namespace App\Livewire\User;
 
 use App\Models\Bitacora;
+use App\Models\Comision;
 use App\Models\User;
 use Livewire\Component;
 
@@ -23,6 +24,9 @@ class UserHistorialIndex extends Component
     public int $accionesHoy = 0;
     public ?string $ultimaAccion = null;
 
+    /** comisiones | bitacora */
+    public string $pestana = 'comisiones';
+
     public function mount($user_id)
     {
         abort_unless(auth()->user()?->can('user.historial'), 403);
@@ -42,8 +46,16 @@ class UserHistorialIndex extends Component
         $this->ultimaAccion = $fila->ultima ?? null;
     }
 
+    public function verPestana(string $pestana): void
+    {
+        $this->pestana = in_array($pestana, ['comisiones', 'bitacora'], true) ? $pestana : 'comisiones';
+    }
+
     public function render()
     {
-        return view('livewire.user.user-historial-index');
+        return view('livewire.user.user-historial-index', [
+            // Lo que vendio y, si es tecnico, lo que reparo (docs/01).
+            'cifras' => Comision::cifras(Comision::query()->deUsuario($this->usuario)),
+        ]);
     }
 }

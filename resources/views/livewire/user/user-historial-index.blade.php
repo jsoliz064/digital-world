@@ -43,7 +43,26 @@
         </div>
     </div>
 
+    <h3 class="font-semibold text-gray-800 dark:text-gray-100 mb-2">
+        Comisiones ({{ rtrim(rtrim(number_format((float) $usuario->comision_porcentaje, 2), '0'), '.') }} % de la ganancia)
+    </h3>
+    <x-comision-cifras :cifras="$cifras" class="mb-6" />
+
+    <div class="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+        @foreach (['comisiones' => 'Comisiones', 'bitacora' => 'Bitácora'] as $clave => $titulo)
+            <button type="button" wire:click="verPestana('{{ $clave }}')" @class([
+                'px-4 py-2 text-sm font-semibold border-b-2 -mb-px',
+                'border-brand-600 text-brand-700 dark:text-brand-300' => $pestana === $clave,
+                'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300' => $pestana !== $clave,
+            ])>{{ $titulo }}</button>
+        @endforeach
+    </div>
+
     <div class="mt-4">
-        @livewire('bitacora.bitacora-table', ['usuarioId' => $usuario->id], key('bitacora-usuario-' . $usuario->id))
+        @if ($pestana === 'comisiones')
+            @livewire('comision.comision-table', ['usuarioId' => $usuario->id], key('comisiones-usuario-' . $usuario->id))
+        @else
+            @livewire('bitacora.bitacora-table', ['usuarioId' => $usuario->id], key('bitacora-usuario-' . $usuario->id))
+        @endif
     </div>
 </div>

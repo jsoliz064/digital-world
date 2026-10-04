@@ -100,6 +100,11 @@
                             Por pagar: Bs {{ number_format($por_pagar, 2) }}
                         </a>
                     @endcan
+                    @can('comision.index')
+                        <a href="{{ route('comisiones') }}" class="block text-xs underline opacity-90">
+                            Comisiones por pagar: Bs {{ number_format($comisiones_por_pagar, 2) }}
+                        </a>
+                    @endcan
                 </div>
             </div>
 

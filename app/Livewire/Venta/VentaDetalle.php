@@ -21,7 +21,7 @@ class VentaDetalle extends Component
     public function render()
     {
         // La carga va en render(): Livewire rehidrata por id y sin relaciones.
-        $venta = Venta::with(['user', 'sucursal', 'fichaCliente', 'pagos' => fn($q) => $q->with(['metodo', 'user', 'producto.modelo'])->orderBy('id')])
+        $venta = Venta::with(['user', 'sucursal', 'fichaCliente', 'comision', 'pagos' => fn($q) => $q->with(['metodo', 'user', 'producto.modelo'])->orderBy('id')])
             ->withCount('detalles')->find($this->ventaId);
 
         if (!$venta) {

@@ -91,6 +91,22 @@
                 <li class="py-2 text-gray-500">Sin pagos registrados.</li>
             @endforelse
         </ul>
+
+        {{-- La comision del vendedor (docs/05): la ve quien ve todas, o el propio vendedor. --}}
+        @php $comision = $venta->comision; @endphp
+        @if ($comision && (auth()->user()->can('comision.index') || (auth()->id() === $venta->user_id && auth()->user()->can('comision.propias'))))
+            <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                <span>
+                    Comisión de {{ $comision->user?->name ?? $venta->user?->name }}
+                    ({{ rtrim(rtrim(number_format((float) $comision->porcentaje, 2), '0'), '.') }} % de la ganancia):
+                    <span class="font-semibold">Bs {{ number_format((float) $comision->monto, 2) }}</span>
+                </span>
+                {!! $comision->estado()->badge() !!}
+                @if ($comision->liquidacion_id)
+                    <span class="text-xs text-gray-500">liquidación #{{ $comision->liquidacion_id }} · ya no cambia si se edita la venta</span>
+                @endif
+            </div>
+        @endif
     </div>
 
     <div class="mt-6">
