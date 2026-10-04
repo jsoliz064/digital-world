@@ -14,6 +14,17 @@ class Tecnicos extends Model
         return $this->hasMany(ProductoReparacion::class, 'tecnico_id');
     }
 
+    /** Su usuario del sistema, para «Mis comisiones». */
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function comisiones()
+    {
+        return $this->hasMany(Comision::class, 'tecnico_id');
+    }
+
     public function getDivColor()
     {
         $color = $this->color;

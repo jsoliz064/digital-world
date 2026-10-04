@@ -48,7 +48,6 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'tecnico.delete'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'tecnico.productos'])->syncRoles([$role1, $role2, $role3]);
         Permission::firstOrCreate(['name' => 'tecnico.productos.exportar'])->syncRoles([$role1, $role2, $role3]);
-        Permission::firstOrCreate(['name' => 'tecnico.productos.pagos'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'tecnico.productos.terminar'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'tecnico.producto.edit'])->syncRoles([$role1, $role2]);
         //PRODUCTOS MARCAS
@@ -100,6 +99,12 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'pago-proveedor.create'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'pago-proveedor.anular'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'proveedor.historial'])->syncRoles([$role1]);
+
+        //COMISIONES (docs/05): liquidar tiene permiso propio; cada uno ve lo suyo
+        Permission::firstOrCreate(['name' => 'comision.index'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'comision.liquidar'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'comision.anular'])->syncRoles([$role1]);
+        Permission::firstOrCreate(['name' => 'comision.propias'])->syncRoles([$role1, $role2, $role3]);
 
         //VENTAS (una sola: equipos, repuestos y accesorios)
         Permission::firstOrCreate(['name' => 'venta.reporte'])->syncRoles([$role1]);

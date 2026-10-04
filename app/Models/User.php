@@ -87,7 +87,21 @@ class User extends Authenticatable
             + DB::table('compras')->where('user_id', $this->id)->count()
             + DB::table('stock_transferencias')->where('user_id', $this->id)->count()
             + DB::table('stock_bajas')->where('user_id', $this->id)->count()
-            + DB::table('productos_regalos')->where('user_id', $this->id)->count();
+            + DB::table('productos_regalos')->where('user_id', $this->id)->count()
+            // La comision liquidada sobrevive a su venta anulada.
+            + DB::table('comisiones')->where('user_id', $this->id)->count()
+            + DB::table('comisiones_liquidaciones')->where('user_id', $this->id)->count();
+    }
+
+    public function comisiones()
+    {
+        return $this->hasMany(Comision::class, 'user_id');
+    }
+
+    /** El tecnico vinculado a este usuario, si lo hay. */
+    public function tecnico()
+    {
+        return $this->hasOne(Tecnicos::class, 'user_id');
     }
 
     /**

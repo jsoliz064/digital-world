@@ -25,7 +25,6 @@ return new class extends Migration
                 ->default(ReparacionTipo::Normal->value);
             $table->date('fecha_entrega')->nullable();
             $table->date('fecha_recogida')->nullable();
-            $table->boolean('pagado')->default(false);
             $table->boolean('garantia_tecnico')->default(false);
             // Venta de la garantia que origino la reparacion.
             $table->foreignId('venta_id')->nullable()->constrained('ventas')->nullOnDelete();

@@ -61,6 +61,11 @@ class AuditarProductos extends Command
         $this->pagadaAtCompraIncoherente();
         $this->reclamosDescuadrados();
         $this->devueltosConCosto();
+        $this->comisionesFaltantes();
+        $this->comisionesSobrantes();
+        $this->comisionesGanadaIncoherente();
+        $this->comisionesMontoDescuadrado();
+        $this->liquidacionesDescuadradas();
 
         $this->newLine();
 
@@ -461,6 +466,105 @@ class AuditarProductos extends Command
             ->get();
 
         $this->reportar('Devueltos al proveedor con costo', $filas, ['id', 'imei', 'costo_unidad', 'costo']);
+    }
+
+    /** Toda venta con vendedor y toda reparacion con tecnico (que no sea de garantia) tiene su comision. */
+    private function comisionesFaltantes(): void
+    {
+        $ventas = DB::table('ventas as v')
+            ->whereNotNull('v.user_id')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('comisiones as c')->whereColumn('c.venta_id', 'v.id'))
+            ->select(DB::raw("'venta' as origen"), 'v.id')
+            ->get();
+
+        $reparaciones = DB::table('productos_reparaciones as r')
+            ->whereNotNull('r.tecnico_id')
+            ->where('r.tipo', '!=', 'Garantia')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('comisiones as c')->whereColumn('c.producto_reparacion_id', 'r.id'))
+            ->select(DB::raw("'reparacion' as origen"), 'r.id')
+            ->get();
+
+        $this->reportar('Ventas o reparaciones sin su comision', $ventas->merge($reparaciones), ['origen', 'id']);
+    }
+
+    /**
+     * Comisiones no liquidadas que no deberian existir: de una reparacion de
+     * garantia o sin tecnico, o sin documento (la venta se anulo y la comision
+     * no se fue con ella). La liquidada si sobrevive a su venta: se pago.
+     */
+    private function comisionesSobrantes(): void
+    {
+        $filas = DB::table('comisiones as c')
+            ->leftJoin('productos_reparaciones as r', 'r.id', '=', 'c.producto_reparacion_id')
+            ->whereNull('c.liquidacion_id')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->whereNull('c.venta_id')->whereNull('c.producto_reparacion_id'))
+                ->orWhere('r.tipo', 'Garantia')
+                ->orWhere(fn($w) => $w->whereNotNull('c.producto_reparacion_id')->whereNull('r.tecnico_id')))
+            ->select('c.id', 'c.referencia', 'r.tipo')
+            ->get();
+
+        $this->reportar('Comisiones que no deberian existir', $filas, ['id', 'referencia', 'tipo']);
+    }
+
+    /** La no liquidada se gana con su documento: la venta pagada, la reparacion terminada. */
+    private function comisionesGanadaIncoherente(): void
+    {
+        $ventas = DB::table('comisiones as c')
+            ->join('ventas as v', 'v.id', '=', 'c.venta_id')
+            ->whereNull('c.liquidacion_id')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->whereNull('c.ganada_at')->whereNotNull('v.pagada_at'))
+                ->orWhere(fn($w) => $w->whereNotNull('c.ganada_at')->whereNull('v.pagada_at'))
+                ->orWhereColumn('c.ganada_at', '!=', 'v.pagada_at'))
+            ->select('c.id', 'c.referencia', 'c.ganada_at', 'v.pagada_at as documento')
+            ->get();
+
+        $reparaciones = DB::table('comisiones as c')
+            ->join('productos_reparaciones as r', 'r.id', '=', 'c.producto_reparacion_id')
+            ->whereNull('c.liquidacion_id')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->whereNull('c.ganada_at')->where('r.estado', 'Terminado'))
+                ->orWhere(fn($w) => $w->whereNotNull('c.ganada_at')->where('r.estado', '!=', 'Terminado')))
+            ->select('c.id', 'c.referencia', 'c.ganada_at', 'r.estado as documento')
+            ->get();
+
+        $this->reportar('Comisiones ganadas en desacuerdo con su venta o reparacion', $ventas->merge($reparaciones), ['id', 'referencia', 'ganada_at', 'documento']);
+    }
+
+    /**
+     * La no liquidada sigue a su documento: base = ganancia de la venta o mano
+     * de obra, y monto = max(0, base) x %. La liquidada queda congelada.
+     */
+    private function comisionesMontoDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT c.id, c.referencia, c.base, c.porcentaje, c.monto,
+                    COALESCE(v.total - v.costo_total, r.costo) AS base_documento
+               FROM comisiones c
+          LEFT JOIN ventas v ON v.id = c.venta_id
+          LEFT JOIN productos_reparaciones r ON r.id = c.producto_reparacion_id
+              WHERE ABS(c.monto - ROUND(GREATEST(0, c.base) * c.porcentaje / 100, 2)) > 0.011
+                 OR (c.liquidacion_id IS NULL
+                     AND (c.venta_id IS NOT NULL OR c.producto_reparacion_id IS NOT NULL)
+                     AND ABS(c.base - COALESCE(v.total - v.costo_total, r.costo)) > 0.009)'
+        );
+
+        $this->reportar('Comisiones con base o monto descuadrado', collect($filas), ['id', 'referencia', 'base', 'base_documento', 'porcentaje', 'monto']);
+    }
+
+    /** El total y la cantidad de una liquidacion son los de sus comisiones. */
+    private function liquidacionesDescuadradas(): void
+    {
+        $filas = DB::select(
+            'SELECT l.id, l.total, l.cantidad, COALESCE(SUM(c.monto), 0) AS suma, COUNT(c.id) AS filas
+               FROM comisiones_liquidaciones l
+          LEFT JOIN comisiones c ON c.liquidacion_id = l.id
+           GROUP BY l.id, l.total, l.cantidad
+             HAVING ABS(l.total - COALESCE(SUM(c.monto), 0)) > 0.009 OR l.cantidad <> COUNT(c.id)'
+        );
+
+        $this->reportar('Liquidaciones descuadradas con sus comisiones', collect($filas), ['id', 'total', 'suma', 'cantidad', 'filas']);
     }
 
     /** Imprime una comprobacion y cuenta el hallazgo si trajo filas. */

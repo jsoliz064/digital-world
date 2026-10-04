@@ -55,6 +55,7 @@ class AnulacionVentaService
 
         if ($venta->detalles()->doesntExist()) {
             $this->pagos->anularTodos($venta, "se anuló la última línea de la venta #{$venta->id}.");
+            app(ComisionService::class)->desligarVenta($venta);
             $venta->delete();
 
             return true;
@@ -82,6 +83,7 @@ class AnulacionVentaService
 
         $this->stock->recalcularTotales();
         $this->pagos->anularTodos($venta, "se anuló la venta #{$venta->id}.");
+        app(ComisionService::class)->desligarVenta($venta);
         $venta->delete();
     }
 

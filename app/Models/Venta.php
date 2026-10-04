@@ -92,6 +92,12 @@ class Venta extends Model
         return $this->hasMany(VentaPago::class, 'venta_id');
     }
 
+    /** La comision de su vendedor (ComisionService). */
+    public function comision()
+    {
+        return $this->hasOne(Comision::class, 'venta_id');
+    }
+
     /** Lo que falta cobrar, sin depender de que `saldo` (generada) este releida. */
     public function saldoPendiente(): float
     {

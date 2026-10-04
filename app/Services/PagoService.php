@@ -235,6 +235,9 @@ class PagoService
 
         $this->moverEquipos($venta, $aCredito ? ProductoEstado::Credito : ProductoEstado::Vendido);
 
+        // La comision del vendedor se gana con pagada_at (docs/05).
+        app(ComisionService::class)->sincronizarVenta($venta);
+
         return $venta;
     }
 
