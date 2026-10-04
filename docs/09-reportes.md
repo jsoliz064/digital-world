@@ -120,3 +120,40 @@ Cierre de mes
 3. Reporte de productos: más vendidos, rotación, parados y ganancia por modelo.
 4. Reporte de inventario: valor, composición por estado y grado, y pérdidas.
 5. Reporte por cliente: los que más compran, deudas y clientes nuevos.
+
+---
+
+## Así quedó
+
+En **Reportes** hay pestañas: General · Vendedores · Productos · Inventario · Clientes, cada una con su permiso (solo el Administrador).
+- Todas tienen el **período** (el mes actual, con atajos de mes anterior y siguiente) y el filtro de **sucursal**.
+- El reporte general también ganó el filtro de sucursal.
+
+**Vendedores**
+- Por vendedor: ventas, monto, ganancia, margen, ticket promedio y comisión de esas ventas, repartida en pendiente, por pagar y pagada. Con fila de total.
+- Al tocar un vendedor se ven sus ventas del período (cliente, total, ganancia, comisión y estado), con enlace a su ficha.
+- El monto incluye la mano de obra; la ganancia no, porque suma al total y al costo.
+
+**Productos**
+- **Equipos vendidos por modelo** (modelo y capacidad): vendidos, ingreso (con el descuento repartido), costo, ganancia, margen, **días en venderse** y **cuántos quedan hoy**.
+- Se ordena por más vendidos, más ganancia, mejor margen o más lentos.
+- Los días en venderse se cuentan desde la fecha de la compra hasta la venta. Si el equipo vino en permuta, desde su alta.
+- **Equipos parados**: los disponibles que llevan 30, 60, 90 o 180 días o más sin venderse, con su costo, su precio y la plata parada en total.
+
+**Inventario** (a hoy, salvo las pérdidas)
+- **Valor por sucursal**:
+  - equipos sin vender, al costo y a precio vendedor (el roto a su costo);
+  - repuestos y accesorios, unidades por costo y por precio;
+  - con total.
+- **Equipos por estado** y **por grado**.
+- **Pérdidas del período** por motivo, con su detalle. La devolución al proveedor no cuenta.
+- **Por agotarse**: cada artículo y sucursal que llegó a su mínimo, con cuánto falta.
+
+**Clientes**
+- Los que **más compran** en el período (top 20, por monto o por cantidad de compras).
+- La **deuda por cliente** a hoy, con su antigüedad en tramos de 0–30, 31–60, 61–90 y más de 90 días, contados desde la fecha de cada venta con saldo.
+- Los **clientes nuevos** del período, con lo que compraron.
+- Cuántas ventas se hicieron **sin ficha** (mostrador).
+- Cada nombre lleva a la ficha del cliente, que es su historial de compras.
+
+Sin exportación a Excel (decisión del usuario): se ven en pantalla y se pueden imprimir desde el navegador.

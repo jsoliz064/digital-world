@@ -107,6 +107,8 @@ Cada método recibe `(ArticuloTipo $tipo, int $id, ...)`. Reglas, todas con su m
 - **El corte en `$cantidad === 0`** es lo que permite reguardar una venta vieja sin tocarle la cantidad.
 - `recalcularTotales()` se llama **una vez al final** de cada guardado. Recuerda qué artículos tocó **por instancia** (`$tocados`): pide el servicio con `app(StockService::class)` dentro del flujo y no reutilices una instancia entre operaciones ajenas.
 
+**El stock mínimo es por artículo y sucursal**: `stock_sucursales.minimo` (0 = sin mínimo), escrito solo por `StockService::fijarMinimo()` (un upsert que crea la fila en 0 unidades). Los movimientos solo tocan `cantidad`, así que no lo pisan. «Por agotarse» = `minimo > 0 AND cantidad <= minimo`, en una sucursal: `ArticuloDeStockTrait::scopeBajoStock()` (whereExists con alias propio) y `StockSucursal::estaPorAgotarse()`. Ya no existe `UMBRAL_BAJO_STOCK`.
+
 **La sucursal de un movimiento se congela en la línea**, no se deduce del documento: `ventas_detalles.sucursal_id`, `compras_detalles.sucursal_id`, `productos_reparaciones_repuestos.sucursal_id`, `productos_regalos.sucursal_id`. Anular o quitar la línea devuelve el stock **a esa sucursal**, aunque el equipo se haya mudado (la reparación terminada se muda al Almacén).
 
 **Las tablas de stock usan FK explícitas, no polimorfismo**: `repuesto_id` y `accesorio_id` nullable con un `CHECK` de exactamente uno, y en `stock_sucursales` dos `UNIQUE` compuestos (`(repuesto_id, sucursal_id)` y `(accesorio_id, sucursal_id)`; los NULL no chocan, así que el `ON DUPLICATE KEY` de `ingresar()` funciona). Por debajo de MySQL 8.0.16 los `CHECK` se ignoran **en silencio**.
@@ -272,6 +274,12 @@ Elegirlo es [ClienteBuscadorTrait](app/Traits/ClienteBuscadorTrait.php) + [x-cli
 **No hay tipo de cambio en ninguna parte del inventario, la compra ni la venta.** El dólar volverá solo como forma de pago de una venta (etapa 5). `ventas.total = subtotal − descuento + mano_obra` (y `saldo = total − pagado`, ver «Pagos y crédito»), y `costo_total = Σ subtotal_costo + mano_obra`: la mano de obra suma al total **y** al costo, para cancelarse en la ganancia. Los cobros de piezas van con **costo 0** por la misma razón. Las reparaciones: `costo_total = costo (mano de obra) + costo_repuestos`.
 
 [ReporteIndex](app/Livewire/Reporte/ReporteIndex.php) es **una familia de consultas** sobre `ventas_detalles` / `compras_detalles` filtrada por `tipo`; el descuento de cabecera se prorratea entre **todas** las líneas de la venta. No hay respaldo de "20 % de ganancia" para equipos sin costo: la línea congela el costo real.
+
+Los reportes son **una pantalla por reporte** (`Reporte/ReporteIndex` el general, `ReporteVendedoresIndex`, `ReporteProductosIndex`, `ReporteInventarioIndex`, `ReporteClientesIndex`), cada uno con su permiso `reporte.*`. `ReporteController::REPORTES` es la única lista (pestañas `partials/nav` e ítem del menú, que va a `primeraRuta()`).
+- `ReporteFiltrosTrait` tiene el filtro de sucursal (`porSucursal($query, 'v.sucursal_id')`) y **las dos expresiones del descuento prorrateado** (`DESCUENTO_PRORRATEADO`, `INGRESO_NETO`, con los alias `d` / `v`): una sola copia para que los reportes cuadren entre sí.
+- `ReportePeriodoTrait` tiene el período de los reportes nuevos (el mes actual, `mes(±1)`).
+- La **entrada** de un equipo es `COALESCE(compras.fecha, DATE(productos.created_at))`: la permuta no tiene compra.
+- Son tablas Blade sobre consultas agregadas, sin rappasoft; las listas largas se paginan con nombre propio.
 
 ---
 

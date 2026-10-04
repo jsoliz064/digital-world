@@ -179,6 +179,14 @@ El stock por sucursal, las transferencias entre sucursales, la baja de unidades 
 
 **Se agregan el UPC y el SKU**, con el mismo lector por cámara y por pistola.
 
+**Stock mínimo por sucursal** (etapa 8):
+- En la ficha del artículo, cada sucursal tiene su cantidad **y su mínimo**. La tienda puede pedir 5 fundas y el Almacén 30.
+- Una sucursal está **por agotarse** cuando su cantidad llega al mínimo o baja de él.
+- El listado de repuestos o accesorios pinta en rojo la cantidad y marca la sucursal.
+- Las tarjetas y el filtro «Por agotarse» lo usan, y el reporte de inventario lo lista.
+- Mínimo 0 = sin mínimo: no avisa nunca.
+- Reemplaza al umbral fijo de 9 unidades sobre el total, que no avisaba si una tienda se quedaba sin nada mientras el Almacén tenía.
+
 ---
 
 ## Los catálogos
