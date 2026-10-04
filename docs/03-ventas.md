@@ -47,11 +47,15 @@ La venta se hace **solo desde la pantalla de ventas**. Desde el cambio de estado
 
 La venta se registra en **bolivianos**. Si el cliente paga en dólares, se marca la venta como **transacción en USD**: se anota el tipo de cambio de ese momento y el método de pago. El sistema guarda las dos cifras para que la caja cuadre.
 
+Así quedó: **cada fila del cobro puede ser en Bs o en USD**. En USD se escriben los dólares y el tipo de cambio, y el sistema muestra el equivalente en Bs, que es lo que descuenta del total. Se puede mezclar (parte en dólares, parte en bolivianos), y vale también para los cobros de una venta a crédito. El tipo de cambio que se propone es el último que se usó.
+
 ### Accesorios que se venden con el equipo
 
 Al armar la venta, por cada teléfono se pueden agregar **accesorios que se venden junto con él**: una funda, un cargador, un vidrio. Se eligen del stock, descuentan cantidad y se suman al total de la venta.
 
 Es distinto de los **accesorios de regalo** de la ficha del producto: aquellos no se cobran (van al costo del equipo), estos sí se cobran.
+
+Así quedó: cada accesorio o repuesto de la venta tiene «Con el equipo», para elegir con qué teléfono se vende (si hay uno solo, ya viene puesto). En el detalle y en la nota aparece debajo de ese equipo.
 
 ```
 Venta
@@ -88,6 +92,8 @@ Cuando el cliente entrega un equipo como parte de pago:
 2. Ese equipo **entra al inventario** como un producto más, con ese valor como costo, listo para revender.
 3. El valor se descuenta del total, y se cobra la diferencia.
 
+Así quedó: **la permuta es un pago más**. La venta sigue valiendo lo que vale (7.000) y el equipo recibido paga una parte (2.500); la ganancia y la comisión salen sobre los 7.000. El equipo recibido queda en Inventario, en la sucursal de la venta, con ese valor como costo y **fuera del catálogo** hasta que se le ponga precio. Su historial dice de qué venta vino. Si se anula la venta, el equipo recibido sale del inventario (se devuelve); si ya se vendió o se reparó, la venta no se puede anular.
+
 ```
 Venta con permuta
 
@@ -121,7 +127,14 @@ Días después, al concretar
   A cobrar                 3.000 Bs
 ```
 
-> **Falta definir**: si la reserva vence a los tantos días y qué pasa con la seña si el cliente no vuelve.
+Así quedó:
+
+- Se reserva desde el estado del equipo («Reservar») o desde la pantalla de **Reservas** («Nueva reserva», buscando el equipo por IMEI, también con el lector). Se elige el cliente (obligatorio), la seña y su método.
+- **La reserva no vence**: queda hasta que se concreta o se cancela. La pantalla de reservas muestra cuántos días lleva cada una.
+- **Concretar** abre la venta con el equipo, el cliente y la seña ya cargados; la seña entra como pago.
+- **Cancelar** devuelve el equipo al inventario y obliga a elegir si la seña **se devuelve** o **la retiene el negocio**; queda registrado.
+- «Reserva» ya no se elige a mano en el estado del equipo.
+- Si se anula una venta que vino de una reserva, la reserva queda cancelada con la seña devuelta.
 
 ### Dar de baja
 
@@ -160,7 +173,9 @@ Se imprime un comprobante en **rollo térmico de 80mm**, con:
       ¡Gracias por su compra!
 ```
 
-> **Falta definir**: si debe llevar datos fiscales o legales, y el logo definitivo.
+Así quedó: botón **«Imprimir nota»** en el detalle de la venta; se abre y se imprime sola, en 80 mm. Lleva lo básico, sin datos fiscales: es un comprobante interno. Los accesorios aparecen debajo del equipo con el que se vendieron, y los pagos muestran los dólares, la permuta y la seña.
+
+> **Falta**: el logo definitivo en buena calidad.
 
 ### El escáner en la venta
 

@@ -95,7 +95,7 @@ Ordenable por antigüedad y por monto, y filtrable por cliente y por vendedor.
 - **Anular un pago** (solo el Administrador) devuelve ese saldo a la venta: si estaba pagada, vuelve a crédito.
 - **Anular una venta con pagos** anula también los pagos: se entiende que el dinero se devolvió. Queda registrado en la bitácora.
 - **No se puede bajar el total de una venta** (editándola o anulando una línea) por debajo de lo ya cobrado: primero hay que anular un pago.
-- Las **reservas** todavía no aparecen en la ficha: la reserva con seña llega en la etapa de ventas.
+- La ficha tiene también la pestaña **Reservas**: las activas (para concretarlas) y las cerradas, con qué pasó con la seña.
 
 ---
 

@@ -88,6 +88,8 @@ Todo lo que le pasa a un teléfono, a un artículo, a un cliente, a una venta, a
 | los regalos de un equipo | [ProductoRegalosService](app/Services/ProductoRegalosService.php) |
 | buscar por IMEI / UPC / SKU / nombre | [BuscadorArticulosService](app/Services/BuscadorArticulosService.php) |
 | `ventas_pagos`, `ventas.pagado`, `ventas.pagada_at` | [PagoService](app/Services/PagoService.php) |
+| `reservas` y el estado Reserva | [ReservaService](app/Services/ReservaService.php) |
+| el alta (y la devolución) del equipo recibido en permuta | [PermutaService](app/Services/PermutaService.php) |
 
 **Ningún servicio abre transacción**: la abre el componente, para que un fallo revierta el stock **y** el documento. Los componentes no escriben esas tablas por su cuenta: si una pantalla necesita algo nuevo, va al servicio.
 
@@ -127,7 +129,7 @@ Más `CHECK` de exactamente un artículo, equipo con cantidad 1 y cantidad ≥ 1
 
 ### El producto: estado, baja y regalos
 
-`ProductoEstado`: Inventario, Reparacion, Fuera, Roto, Reserva, Credito, Vendido. **Fuera** = salió del local (lo tiene alguien); **Roto** = está roto. **Ninguno es una baja.** No hay Tránsito ni Oferta: la oferta es `productos.tipo_venta` (Venta, Oferta, Venta externa), y un equipo en oferta está en Inventario. `Vendido` y `Credito` (`ProductoEstado::vendidos()`) **solo los escribe una venta**: no salen en el selector. `fueraDeCatalogo()` es lo que el catálogo público excluye (vendidos, rotos, reservados).
+`ProductoEstado`: Inventario, Reparacion, Fuera, Roto, Reserva, Credito, Vendido. **Fuera** = salió del local (lo tiene alguien); **Roto** = está roto. **Ninguno es una baja.** No hay Tránsito ni Oferta: la oferta es `productos.tipo_venta` (Venta, Oferta, Venta externa), y un equipo en oferta está en Inventario. `Vendido` y `Credito` (`ProductoEstado::vendidos()`) **solo los escribe una venta**, y `Reserva` **solo una reserva** (`ReservaService`): los tres son `soloPorDocumento()` y no salen en el selector. `fueraDeCatalogo()` es lo que el catálogo público excluye (vendidos, rotos, reservados).
 
 `productos.estado` lo escribe **solo** `EstadoProductoService::cambiar($productoId, $esperado, $destino, $descripcion, $enlaces, $exigirPermiso)`:
 
@@ -206,7 +208,21 @@ Lo cobrado de una venta vive en `ventas_pagos` (al vender, `momento` Venta; desp
 - **Idempotencia del cobro**: `CobroModal` reparte una clave entre los pagos que crea; `UNIQUE (clave_idempotencia, venta_id, metodo_pago_id)`. Por eso `PagoService` junta en uno los pagos del mismo método.
 - **Orden de bloqueo**: la venta, después sus equipos por id, después el stock.
 - Los métodos de pago (`metodos_pago`) se desactivan, no se borran, si tienen pagos: `MetodoPago::activos()` para cobrar, todos para los filtros.
-- Refrescar tras un pago: todos los componentes que muestran saldo escuchan **`pagosActualizados`**.
+- Refrescar tras un pago: todos los componentes que muestran saldo escuchan **`pagosActualizados`** (y las reservas, **`reservasActualizadas`**).
+- **Tres clases de pago, todas con `monto` en Bs**:
+  - a mano (`registrar()`), en Bs o en **USD** (`moneda`, `monto_moneda`, `tipo_cambio`; Bs = USD × TC). `PagoService::ultimoTipoCambio()` propone el último;
+  - la **permuta** (`registrarPermuta()`): el método de sistema «Permuta» (`MetodoPago::PERMUTA`, `sistema = 1`, fuera de `activos()`) con `producto_id` = el equipo recibido. Decisión del usuario: es un pago, no un descuento; la venta vale lo vendido;
+  - la **seña** de una reserva (`registrarSena()`, momento `Sena`), al concretarla.
+  Las dos últimas **no se anulan sueltas**: se deshacen anulando la venta, y entonces `anularTodos()` devuelve el equipo recibido (`PermutaService::devolver()`, que se niega si ya se vendió o reparó) y cancela la reserva con la seña devuelta.
+- El equipo recibido en permuta **no tiene compra**: su origen es `Producto::permuta()` (el auditor no lo cuenta como "sin compra") y su costo no se edita (es el pago).
+
+### Reservas: `ReservaService`
+
+Un equipo apartado por un cliente con una seña (`reservas`). Mientras está `Activa`, el equipo está en estado Reserva: fuera de la venta y del catálogo. **No vence**; se **concreta** (la venta con `cabecera['reserva_id']`: `VentaService` bloquea la reserva primero, exige su equipo en la venta, fija el cliente, vende el equipo esperando Reserva y al final registra la seña) o se **cancela** eligiendo `SenaDestino` (Devuelta / Retenida). Una sola reserva activa por equipo: columna generada `producto_activo` con UNIQUE. **Orden de bloqueo: reserva → venta → equipos → stock.**
+
+### Accesorios del equipo
+
+`ventas_detalles.producto_asociado_id` agrupa un accesorio o repuesto bajo el equipo con el que se vendió (detalle y nota). `VentaService` solo lo acepta si ese equipo está en la misma venta, y quitar el equipo lo desasocia. La nota térmica es `ventas/{id}/nota` (`VentaController@nota`), HTML suelto de 80 mm que se imprime solo.
 
 ### El lector de códigos: la cámara imita a la pistola
 
@@ -273,7 +289,7 @@ $this->dispatch('filtersUpdated', [...]);          // Index -> Table
 - **Un SKU o UPC vacío se guarda como NULL** (`NormalizaCodigosTrait`): con `''` el segundo artículo sin SKU choca con el índice único.
 - **Los índices únicos son la garantía de verdad, no la regla `unique:`.** Los de dominio: `productos.imei`, `productos_sku_unico` (y los de repuestos y accesorios), `ventas_detalles_producto_unico` (un teléfono, una sola venta; anular **borra** la línea, así que revender funciona), `compras_detalles_producto_unico`, `vd_reparacion_repuesto_unico`, `vd_venta_articulo_unico`, `cd_compra_articulo_unico`, `clave_idempotencia` en `ventas` y `compras`, y los dos de `stock_sucursales`.
 - **MySQL prohíbe acciones referenciales en columnas que usa un `CHECK` o una columna generada.** Por eso las FK de artículo y de cabecera de las líneas y del stock van en **RESTRICT**: borrar un artículo con movimientos lo impide el código con un mensaje claro, no una cascada.
-- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra, `pagado` contra sus pagos, `pagada_at` contra el saldo, equipos en Credito/Vendido que no coinciden con el saldo de su venta y ventas a crédito sin cliente. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
+- **`php artisan productos:auditar`** es el detector de deriva, de solo lectura: vendidos sin línea de venta, líneas sin vendido, ventas y compras vacías, equipos sin línea de compra, IMEI repetidos, historial en desacuerdo con el estado, bajas vendidas, el descuadre de `repuestos.cantidad` y `accesorios.cantidad`, de `costo_regalos`, de `costo_total`, del costo de la línea de compra y de los totales de venta y compra, `pagado` contra sus pagos, `pagada_at` contra el saldo, equipos en Credito/Vendido que no coinciden con el saldo de su venta, ventas a crédito sin cliente, equipos en Reserva sin reserva activa (o al revés), reservas concretadas sin su seña y permutas sin equipo o con otro costo. Hoy dice **«Sin inconsistencias.»**: lo que importa es que siga así.
 - **`Venta::cliente` es una columna, no la relación.** La ficha es `fichaCliente()` y lo que se pinta sale de `nombreCliente()`.
 - **Dentro de una etiqueta `<x-…>` solo valen `@class` y `@style`.** Cualquier otra directiva —`@disabled`, `@checked`— impide que `ComponentTagCompiler` compile el componente, y al navegador le llega un `<x-checkbox>` **literal**, sin ningún error. En un componente va `:disabled="$expr"`; `@disabled(...)` solo sobre HTML plano. Para comprobarlo: tras `php artisan view:cache`, ningún archivo de `storage/framework/views` debe contener `<x-`.
 - **El Observer no ve lo que no pasa por Eloquent.** `DB::table()->update()`, `DB::statement()` y el `update()` del query builder no dejan fila en la bitácora. Si el hecho importa, se registra a mano.
