@@ -32,6 +32,7 @@ Efectivo, QR, transferencia, tarjeta. ¿Alguno más? ¿Los administra el cliente
 
 **7. En una venta con permuta, ¿la comisión se calcula sobre qué?**
 Si se vende en 7.000 y se reciben 2.500 en equipo, ¿la ganancia del vendedor sale sobre los 7.000 o sobre los 4.500 cobrados?
+> **Resuelta**: sobre los 7.000. La permuta es un pago y la venta vale lo vendido.
 
 ---
 
@@ -49,12 +50,15 @@ Se documentó que el sistema avisa pero no bloquea. ¿Debería bloquear a partir
 
 **10. ¿Quién autoriza y marca el pago de una liquidación?**
 ¿Un permiso aparte para eso, o lo hace cualquiera con acceso al módulo?
+> **Resuelta**: un permiso aparte (`comision.liquidar`), solo para el Administrador.
 
 **11. ¿Hay comisión por vender repuestos y accesorios?**
 Se documentó la comisión sobre la venta de equipos. ¿La venta de accesorios también comisiona?
+> **Resuelta**: sí. La comisión va sobre toda la ganancia de la venta.
 
 **12. En una reparación por garantía, donde no se le cobra al cliente, ¿el técnico igual cobra su 50%?**
 Si no se cobró mano de obra, no hay de dónde sacar el 50%. Hay que decidir si el negocio lo cubre igual o si esa reparación no comisiona.
+> **Resuelta**: la reparación por garantía no comisiona.
 
 ---
 

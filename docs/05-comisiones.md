@@ -1,6 +1,6 @@
 # 5. Comisiones
 
-> **Módulo nuevo.** Hoy no existe nada de esto en el sistema.
+> **Módulo nuevo.** Construido en la etapa 7: ver «Así quedó» al final.
 
 ## Qué problema resuelve
 
@@ -119,7 +119,7 @@ Fin de mes
 - **No calcula impuestos ni aportes** sobre lo pagado.
 - **No genera recibo de pago impreso.** Queda el registro en el sistema.
 - **No hay comisión por cobranza**, ni por meta cumplida, ni escalas por volumen. Es un porcentaje plano por persona.
-- **No hay comisión sobre repuestos y accesorios**, salvo que se decida lo contrario: hoy se define sobre la venta de equipos.
+- ~~No hay comisión sobre repuestos y accesorios~~: se decidió que **sí**, la comisión va sobre toda la ganancia de la venta.
 - **Una comisión pagada no se revierte sola.** Si después se anula esa venta, hay que ajustarlo a mano.
 - **No hay adelantos** a cuenta de comisiones futuras.
 
@@ -133,3 +133,48 @@ Fin de mes
 4. Vista de comisiones por persona: pendiente, por pagar y pagado, con su detalle.
 5. Pantalla de liquidación por persona y período, con registro del pago.
 6. Reporte de comisiones del período, para todos.
+
+---
+
+## Así quedó
+
+**Vendedor**
+- La comisión es el % de su ficha sobre **toda la ganancia de la venta**: equipos, repuestos y accesorios (total − costo). La permuta es un pago, no rebaja la venta. Una venta por debajo del costo da comisión 0.
+- Nace con la venta como **pendiente** y pasa a **por pagar** cuando la venta queda cobrada entera. Si se anula un cobro o se edita la venta y vuelve a quedar saldo, vuelve a pendiente. Editar la venta recalcula el monto.
+- El vendedor es quien registró la venta.
+
+**Técnico**
+- La comisión es el % de su ficha (50 % por defecto) sobre la **mano de obra** cargada en la reparación. Es pendiente mientras la reparación está en curso y pasa a por pagar al terminarla.
+- Las reparaciones **por garantía no comisionan**. Las normales y las externas sí.
+- Se reemplazó el viejo «Pagado» de la reparación, que pagaba la mano de obra entera sin dejar registro.
+
+**Reglas comunes**
+- El porcentaje **se congela** el día que nace la comisión. Cambiar después la ficha no reescribe lo anterior.
+- Una comisión **pagada no se toca**. Si después se edita o se anula su venta, queda como se pagó y la pantalla lo avisa: hay que ajustarlo a mano.
+
+**Pantallas**
+- **Comisiones** (menú):
+  - las tres cifras (pendiente, por pagar, pagado) y el período (por mes);
+  - «Por persona», con vendedores y técnicos juntos y lo ganado y pagado en el período;
+  - el detalle de todas las comisiones, con filtros por persona, tipo, estado y fechas: es el reporte del período;
+  - la lista de liquidaciones.
+- **Liquidar**:
+  - se elige la persona y el período, y aparece todo lo ganado y sin pagar, todo marcado;
+  - se destilda lo que no entra y se confirma;
+  - si quedó algo ganado antes del período, se avisa y se puede incluir;
+  - una liquidación se puede ver y anular: sus comisiones vuelven a por pagar.
+- **Mis comisiones**: cada vendedor ve lo suyo. El técnico también, si su ficha tiene vinculado su usuario del sistema.
+- **Fichas**:
+  - la del usuario muestra sus comisiones;
+  - la del técnico muestra sus cifras y el botón Liquidar;
+  - el detalle de la venta muestra la comisión de su vendedor;
+  - el tablero muestra «Comisiones por pagar».
+
+**Permisos**
+
+| Permiso | Para qué | Roles |
+|---|---|---|
+| `comision.index` | ver todo | Administrador |
+| `comision.liquidar` | liquidar | Administrador |
+| `comision.anular` | anular una liquidación | Administrador |
+| `comision.propias` | Mis comisiones | Administrador, Vendedor y Solo técnicos |

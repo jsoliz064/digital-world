@@ -51,6 +51,8 @@ Reparación
 
 Eso se acumula en su ficha y se paga por liquidación. Ver [Comisiones](05-comisiones.md).
 
+Así quedó: la comisión se gana al terminar la reparación, con el % de la ficha del técnico sobre la mano de obra. Reemplaza al viejo «Pagado» de la reparación, que pagaba la mano de obra entera sin dejar registro. Un técnico con reparaciones no se elimina.
+
 ### Todo en bolivianos
 
 Los costos de reparación se cargan y se muestran en Bs.
@@ -102,7 +104,7 @@ Un equipo vuelve por garantía
 - **No hay control de tiempos**: no mide cuánto tardó cada reparación ni avisa de atrasos.
 - **No hay repuestos reservados** para una reparación pendiente: se descuentan cuando se usan.
 - **No hay diagnóstico previo con presupuesto** que el cliente apruebe antes de reparar.
-- **La comisión del técnico no distingue el tipo de reparación**: se calcula igual en una normal, una externa o una por garantía. *(Conviene confirmar si en garantía, donde no se le cobra al cliente, el técnico igual cobra.)*
+- **La reparación por garantía no comisiona** (decisión del usuario: no se le cobró nada al cliente). La normal y la externa sí.
 
 ---
 

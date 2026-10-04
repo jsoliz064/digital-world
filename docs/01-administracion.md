@@ -20,6 +20,8 @@ A partir de ese porcentaje, cada venta que esa persona registre genera una comis
 
 Desde la ficha del usuario se podrá ver, además, todo lo que ha vendido y cuánta comisión tiene ganada, pendiente y pagada.
 
+Así quedó: la ficha del usuario (Historial) muestra sus tres cifras de comisión y la pestaña Comisiones, junto a la Bitácora. Cada uno ve lo suyo en «Mis comisiones».
+
 ---
 
 ## Roles
@@ -76,6 +78,12 @@ Reparación de un iPhone 12
 El porcentaje queda como un dato de la ficha del técnico, con 50% cargado por defecto, por si alguna vez hace falta un arreglo distinto con alguien.
 
 Desde la ficha del técnico se ve qué reparaciones hizo, cuánto lleva ganado, qué está pendiente de pago y qué ya se le pagó.
+
+Así quedó:
+- La ficha del técnico muestra sus cifras de comisión y el botón «Liquidar comisiones».
+- La ficha puede vincularse a un **usuario del sistema**, para que el técnico vea lo suyo en «Mis comisiones».
+- Las reparaciones por garantía no comisionan.
+- Un técnico con reparaciones no se elimina.
 
 **Se retira el enlace público del técnico.** Quien necesite ver los equipos, entra al sistema con su usuario.
 
