@@ -74,7 +74,16 @@ Estado: Con reclamo
 
 Desde la ficha del proveedor se ve qué reclamos hay abiertos con él.
 
-> **Falta definir**: si el reemplazo entra como parte de la misma compra (sin cambiar el costo total) o si se carga como una compra aparte.
+Así quedó:
+
+- El reclamo se abre desde la tabla de equipos de la compra («Reclamar al proveedor»), con el motivo. Solo para equipos en Inventario o Roto.
+- El equipo queda **«En reclamo»**: no se vende, no se repara, no se transfiere, no sale en el catálogo y no se cambia de estado a mano. La compra pasa a **Con reclamo**.
+- El reclamo se cierra de tres formas:
+  - **Reemplazo**: el equipo nuevo (con su IMEI, también escaneado) entra **en la misma compra** con el costo del fallado; el total no cambia.
+  - **Descuento**: el proveedor descuenta; el costo del fallado sale del total de la compra.
+  - **Se acepta como está**: el equipo vuelve a Inventario o a Roto, con su costo.
+- En Reemplazo y Descuento, el fallado **vuelve al proveedor**: queda archivado como «Devuelto al proveedor», con costo 0 (no cuenta como pérdida). Esa baja no se revierte.
+- Cuando todos los reclamos de la compra se cierran, la compra queda **Resuelta**. El estado se calcula solo; nadie lo cambia a mano.
 
 ### Cuentas por pagar
 
@@ -93,6 +102,13 @@ Compra #12                        48.000,00 Bs
 ```
 
 Y una pantalla de **cuentas por pagar** que muestra todo lo que se le debe a cada proveedor, ordenado por antigüedad.
+
+Así quedó:
+
+- Al registrar la compra se carga lo **pagado al recibir** (uno o varios métodos, en Bs o en USD con su tipo de cambio). Los equipos que se cargan después en el detalle suman a lo que se debe.
+- Los pagos se registran desde el detalle de la compra, desde **Cuentas por pagar** o desde la ficha del proveedor; el monto se reparte de la compra más antigua (por fecha) a la más nueva, y cada una se puede corregir.
+- Un pago se puede anular; una compra **con pagos no se elimina** hasta anularlos.
+- No se puede bajar el total de una compra (quitar un equipo, un descuento) por debajo de lo ya pagado: primero hay que anular un pago.
 
 Es el mismo mecanismo que las cobranzas de clientes, pero del otro lado del mostrador.
 

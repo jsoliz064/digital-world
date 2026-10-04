@@ -48,6 +48,8 @@ Un listado simple de nombres. Cada compra de equipos se registra contra un prove
 
 Se mantiene. Con las compras a crédito y los reclamos, la ficha del proveedor pasa a mostrar **cuánto se le debe** y **qué reclamos hay abiertos con él**. Ver [Compras](06-compras.md).
 
+Así quedó: la lista de proveedores muestra cuánto se le debe a cada uno, y «Ver ficha» abre su ficha con la deuda, sus compras (con estado y saldo), los pagos que se le hicieron y los reclamos (los abiertos primero), con un botón para registrar un pago.
+
 ---
 
 ## Técnicos
