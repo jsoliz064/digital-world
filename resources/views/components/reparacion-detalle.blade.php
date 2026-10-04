@@ -5,7 +5,7 @@
     sin editarla: el detalle del historial del producto y el "ver reparacion" de
     la pantalla de tecnicos. Antes cada una tenia su propia copia y las dos se
     habian quedado atras respecto a las pantallas de edicion: faltaban el costo
-    de repuestos, el tipo de cambio, los dos totales, pagado y la garantia.
+    de repuestos, el tipo de cambio, los dos totales, la comision y la garantia.
 
     UNIDADES: todo en Bs. costo_total = costo (mano de obra) + costo_repuestos.
 
@@ -19,10 +19,10 @@
     @php
         $bs = fn($v) => 'Bs. ' . number_format((float) $v, 2);
 
-        // El modelo ProductoReparacion no declara $casts, asi que estos dos
-        // vuelven como enteros. Los tres componentes de edicion hacen lo mismo.
-        $pagado = (bool) $reparacion->pagado;
+        // El modelo ProductoReparacion no declara $casts, asi que vuelve como
+        // entero. Los tres componentes de edicion hacen lo mismo.
         $garantiaTecnico = (bool) $reparacion->garantia_tecnico;
+        $comision = $reparacion->comision;
 
         $claseSi = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
         $claseNo = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
@@ -151,11 +151,14 @@
 
     <div class="m-2 flex flex-wrap gap-6">
         <div>
-            <x-label>Pagado:</x-label>
-            <div class="mt-1">
-                <span class="{{ $claseDistintivo }} {{ $pagado ? $claseSi : $claseNo }}">
-                    {{ $pagado ? 'Sí' : 'No' }}
-                </span>
+            <x-label>Comisión del técnico:</x-label>
+            <div class="mt-1 text-sm">
+                @if ($comision)
+                    {{ $bs($comision->monto) }} ({{ rtrim(rtrim(number_format((float) $comision->porcentaje, 2), '0'), '.') }} %)
+                    {!! $comision->estado()->badge() !!}
+                @else
+                    <span class="{{ $claseDistintivo }} {{ $claseNo }}">Sin comisión</span>
+                @endif
             </div>
         </div>
 

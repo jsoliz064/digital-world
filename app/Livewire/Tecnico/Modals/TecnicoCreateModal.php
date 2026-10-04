@@ -3,6 +3,7 @@
 namespace App\Livewire\Tecnico\Modals;
 
 use App\Models\Tecnicos;
+use App\Models\User;
 use Livewire\Component;
 use Livewire\Attributes\On;
 
@@ -16,6 +17,7 @@ class TecnicoCreateModal extends Component
         'tecnico.nombre' => 'required|string|max:255',
         'tecnico.color' => 'required|string|max:10',
         'tecnico.comision_porcentaje' => 'required|numeric|min:0|max:100',
+        'tecnico.user_id' => 'nullable|integer|exists:users,id',
     ];
 
     protected $messages = [
@@ -25,6 +27,7 @@ class TecnicoCreateModal extends Component
         'tecnico.comision_porcentaje.numeric' => 'La comisión debe ser un número',
         'tecnico.comision_porcentaje.min' => 'La comisión no puede ser negativa',
         'tecnico.comision_porcentaje.max' => 'La comisión no puede pasar de 100',
+        'tecnico.user_id.exists' => 'Ese usuario no existe',
     ];
 
     #[On('openTecnicoCreateModal')]
@@ -38,7 +41,9 @@ class TecnicoCreateModal extends Component
 
     public function store()
     {
+        $this->tecnico['user_id'] = ($this->tecnico['user_id'] ?? null) ?: null;
         $this->validate();
+        $this->exigirUsuarioLibre();
         Tecnicos::create($this->tecnico);
         $this->dispatch('refreshTecnicoTable');
         toastr()->success('Técnico creado exitosamente');
@@ -50,8 +55,19 @@ class TecnicoCreateModal extends Component
         $this->reset();
     }
 
+    /** Un usuario es de un solo tecnico (UNIQUE tecnicos.user_id). */
+    private function exigirUsuarioLibre(): void
+    {
+        $uid = $this->tecnico['user_id'] ?? null;
+        if ($uid && Tecnicos::where('user_id', $uid)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['tecnico.user_id' => 'Ese usuario ya está vinculado a otro técnico.']);
+        }
+    }
+
     public function render()
     {
-        return view('livewire.tecnico.modals.tecnico-create-modal');
+        return view('livewire.tecnico.modals.tecnico-create-modal', [
+            'usuarios' => $this->openModal ? User::where('activo', true)->orderBy('name')->get(['id', 'name']) : collect(),
+        ]);
     }
 }

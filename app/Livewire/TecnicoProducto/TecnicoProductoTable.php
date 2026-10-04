@@ -2,6 +2,7 @@
 
 namespace App\Livewire\TecnicoProducto;
 
+use App\Enums\ComisionEstado;
 use App\Enums\ReparacionTipo;
 use App\Models\ProductoReparacion;
 use App\Models\Tecnicos;
@@ -51,10 +52,15 @@ class TecnicoProductoTable extends DataTableComponent
                     return '<span style="color:' . $color . '">' . $value . '</span>';
                 })
                 ->html(),
-            Column::make("Pagado", "pagado")
-                ->sortable()
-                ->format(function ($value) {
-                    return "<span style='color:" . ($value ? 'green' : 'red') . "'>" . ($value ? 'Si' : 'No') . "</span>";
+            // La comision del tecnico (ComisionService) reemplaza al viejo
+            // "pagado", que pagaba el 100 % de la mano de obra sin registro.
+            Column::make("Comisión")
+                ->label(function ($row) {
+                    $comision = $row->comision;
+                    if (!$comision) {
+                        return '<span class="text-gray-400">—</span>';
+                    }
+                    return 'Bs. ' . number_format((float) $comision->monto, 2) . ' ' . $comision->estado()->badge();
                 })
                 ->html(),
             Column::make("Garantia Tecnico", "garantia_tecnico")
@@ -139,20 +145,17 @@ class TecnicoProductoTable extends DataTableComponent
                 ->filter(function (Builder $builder, string $value) {
                     $builder->where('productos_reparaciones.estado', $value);
                 }),
-            SelectFilter::make('Pagados')
-                ->options([
-                    '0' => 'Pendientes',
-                    '1' => 'Pagados',
-                ])
+            SelectFilter::make('Comisión')
+                ->options(['' => 'Todas'] + array_combine(ComisionEstado::values(), ComisionEstado::values()))
                 ->filter(function (Builder $builder, string $value) {
-                    $builder->where('productos_reparaciones.pagado', $value);
+                    $builder->whereHas('comision', fn($q) => $q->conEstado($value));
                 })
         ];
     }
 
     public function builder(): Builder
     {
-        return ProductoReparacion::query()->with('producto.modelo')->where('tecnico_id', $this->tecnico->id);
+        return ProductoReparacion::query()->with(['producto.modelo', 'comision'])->where('tecnico_id', $this->tecnico->id);
     }
 
     #[On('refreshTecnicoProductoTable')]

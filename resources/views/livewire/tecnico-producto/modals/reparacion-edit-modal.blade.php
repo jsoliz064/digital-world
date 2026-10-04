@@ -166,6 +166,12 @@
                         <x-input type="number" wire:model.lazy="reparacion.costo" class="w-full"
                             onfocus="this.select()"></x-input>
                         <x-input-error for="reparacion.costo"></x-input-error>
+                        @php $comisionLiquidada = $reparacionModel?->comision()->whereNotNull('liquidacion_id')->first(); @endphp
+                        @if ($comisionLiquidada)
+                            <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                Su comisión (Bs {{ number_format((float) $comisionLiquidada->monto, 2) }}) ya se pagó en la liquidación #{{ $comisionLiquidada->liquidacion_id }}: cambiar la mano de obra no la cambia.
+                            </p>
+                        @endif
                     </div>
 
                     <div>
@@ -189,15 +195,6 @@
                         </label>
                         <x-input-error for="reparacion.garantia_tecnico" class="mt-1" />
                     </div>
-                </div>
-
-                <div class="animate-fade-in m-2">
-                    <label class="flex items-center">
-                        <input type="checkbox" wire:model="reparacion.pagado"
-                            class="form-checkbox h-5 w-5 text-brand-600 transition duration-150 ease-in-out rounded dark:bg-gray-700 dark:border-gray-600">
-                        <span class="ml-2 text-gray-700 dark:text-gray-200">Pagado</span>
-                    </label>
-                    <x-input-error for="reparacion.pagado" class="mt-1" />
                 </div>
 
                 <div class="m-2 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">

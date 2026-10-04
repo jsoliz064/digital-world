@@ -3,6 +3,7 @@
 namespace App\Livewire\TecnicoProducto;
 
 use App\Exports\TecnicoProductoExport;
+use App\Models\Comision;
 use App\Models\Tecnicos;
 use Livewire\Component;
 use Livewire\Attributes\On;
@@ -12,8 +13,8 @@ class TecnicoProductoIndex extends Component
 
     public $tecnico;
     public $cant_productos_pendientes;
-    public $cant_productos_no_pagados;
-    public $total_productos_no_pagados;
+    /** Pendiente / por pagar / pagado de su comision (Comision::cifras). */
+    public array $cifras = [];
 
     public function mount($tecnico_id)
     {
@@ -24,12 +25,8 @@ class TecnicoProductoIndex extends Component
 
     private function calculateRepraciones()
     {
-        $productos_pendientes = $this->tecnico->reparaciones()->where('estado', 'pendiente')->get();
-        $productos_no_pagados = $this->tecnico->reparaciones()->where('pagado', false)->get();
-
-        $this->cant_productos_pendientes = count($productos_pendientes);
-        $this->cant_productos_no_pagados = count($productos_no_pagados);
-        $this->total_productos_no_pagados = $productos_no_pagados->sum('costo');
+        $this->cant_productos_pendientes = $this->tecnico->reparaciones()->where('estado', 'Pendiente')->count();
+        $this->cifras = Comision::cifras(Comision::where('tecnico_id', $this->tecnico->id));
     }
 
     public function render()
@@ -37,9 +34,9 @@ class TecnicoProductoIndex extends Component
         return view('livewire.tecnico-producto.tecnico-producto-index');
     }
 
-    public function openTecnicoPagoModal($tenico_id)
+    public function liquidar()
     {
-        $this->dispatch('openTecnicoPagoModal', $tenico_id);
+        $this->dispatch('openComisionLiquidarModal', 'T-' . $this->tecnico->id);
     }
 
     public function openTecnicoTerminarModal($tenico_id)
@@ -48,6 +45,7 @@ class TecnicoProductoIndex extends Component
     }
 
     #[On('refreshTecnicoProductoIndex')]
+    #[On('comisionesActualizadas')]
     public function refreshTecnicoProductoIndex()
     {
         $this->calculateRepraciones();

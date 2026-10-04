@@ -298,15 +298,6 @@
                             </div>
                         </div>
 
-                        <div class="animate-fade-in m-2">
-                            <label class="flex items-center">
-                                <input type="checkbox" wire:model="reparacion.pagado"
-                                    class="form-checkbox h-5 w-5 text-brand-600 transition duration-150 ease-in-out rounded dark:bg-gray-700 dark:border-gray-600">
-                                <span class="ml-2 text-gray-700 dark:text-gray-200">Pagado</span>
-                            </label>
-                            <x-input-error for="reparacion.pagado" class="mt-1" />
-                        </div>
-
                         @if (isset($reparacion['id']))
                             <x-primary-button class="ml-2" wire:click="finalizarReparacion()"
                                 wire:loading.attr="disabled">

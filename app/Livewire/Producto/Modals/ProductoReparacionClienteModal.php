@@ -126,7 +126,6 @@ class ProductoReparacionClienteModal extends Component
         $this->tecnico = $productoReparacion ? $productoReparacion->tecnico : null;
 
         $this->reparacion = $productoReparacion ? $productoReparacion->toArray() : $this->initialReparacion();
-        $this->reparacion['pagado'] = (bool)$this->reparacion['pagado'];
         $this->reparacion['garantia_tecnico'] = (bool)$this->reparacion['garantia_tecnico'];
 
         $this->repuestos = [];
@@ -161,7 +160,6 @@ class ProductoReparacionClienteModal extends Component
             'costo_total' => 0,
             'cobro_cliente' => 0,
             'fecha_entrega' => '',
-            'pagado' => false,
             'garantia_tecnico' => false
         ];
     }
@@ -329,7 +327,6 @@ class ProductoReparacionClienteModal extends Component
             'reparacion.tecnico_id' => 'required',
             'reparacion.fecha_entrega' => 'required',
             'reparacion.garantia_tecnico' => 'required',
-            'reparacion.pagado' => 'required',
             // Solo el trabajo externo se le cobra al cliente.
             'reparacion.cobro_cliente' => $this->esExterno() ? 'required|numeric|min:0' : 'nullable',
         ], [
@@ -352,7 +349,6 @@ class ProductoReparacionClienteModal extends Component
                 'repuestos_devolver' => isset($this->reparacion['repuestos_devolver']) ? $this->reparacion['repuestos_devolver'] : null,
                 'fecha_entrega' => $this->reparacion['fecha_entrega'],
                 'garantia_tecnico' => $this->reparacion['garantia_tecnico'],
-                'pagado' => $this->reparacion['pagado'],
                 'cobro_cliente' => $this->esExterno() ? ($this->reparacion['cobro_cliente'] ?? 0) : 0,
             ];
 

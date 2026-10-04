@@ -11,6 +11,9 @@
                     <x-label>Nombre:</x-label>
                     <x-input type="text" value="{{ $tecnico->nombre }}" class="w-full" disabled="true"></x-input>
                 </div>
+                @if ($tecnico->reparaciones()->exists())
+                    <p class="m-2 text-sm text-red-600">Tiene reparaciones registradas: no se puede eliminar, para no perder su historial ni sus comisiones.</p>
+                @endif
 
             </x-slot>
             <x-slot name="footer">

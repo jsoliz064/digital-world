@@ -21,6 +21,13 @@ class TecnicoDestroyModal extends Component
 
     public function destroy()
     {
+        // Con reparaciones no se borra: la FK las dejaria sin tecnico en
+        // silencio, y sus comisiones (RESTRICT) lo impedirian con un error.
+        if ($this->tecnico->reparaciones()->exists() || $this->tecnico->comisiones()->exists()) {
+            toastr()->error('El técnico tiene reparaciones y comisiones registradas: no se puede eliminar.');
+            return;
+        }
+
         try {
             $this->tecnico->delete();
             $this->dispatch('refreshTecnicoTable');

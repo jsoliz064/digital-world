@@ -121,7 +121,6 @@ class ProductoEstadoModal extends Component
             $productoReparacion = $producto->ultimaReparacion();
             $this->tecnico = $productoReparacion?->tecnico;
             $this->reparacion = $productoReparacion ? $productoReparacion->toArray() : $this->initialReparacion();
-            $this->reparacion['pagado'] = (bool) ($this->reparacion['pagado'] ?? false);
             $this->reparacion['garantia_tecnico'] = (bool) ($this->reparacion['garantia_tecnico'] ?? false);
         }
 
@@ -196,7 +195,6 @@ class ProductoEstadoModal extends Component
             'costo_repuestos' => 0,
             'costo_total' => 0,
             'fecha_entrega' => now()->format('Y-m-d'),
-            'pagado' => false,
             'garantia_tecnico' => false,
         ];
     }
@@ -467,7 +465,6 @@ class ProductoEstadoModal extends Component
             'repuestos_devolver' => $this->reparacion['repuestos_devolver'] ?? null,
             'fecha_entrega' => $this->reparacion['fecha_entrega'],
             'garantia_tecnico' => (bool) ($this->reparacion['garantia_tecnico'] ?? false),
-            'pagado' => (bool) ($this->reparacion['pagado'] ?? false),
         ];
 
         // El id es del payload: la reparacion tiene que ser de este producto.

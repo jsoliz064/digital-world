@@ -64,7 +64,6 @@ class ReparacionEditModal extends Component
         $this->modelos = ProductoModelo::all();
         $this->reparacionModel = $reparacion;
         $this->reparacion = $reparacion->toArray();
-        $this->reparacion['pagado'] = (bool) $this->reparacion['pagado'];
         $this->reparacion['garantia_tecnico'] = (bool) $this->reparacion['garantia_tecnico'];
 
         foreach ($reparacion->repuestos as $reparacionRepuesto) {
@@ -250,7 +249,6 @@ class ReparacionEditModal extends Component
             'reparacion.costo_total' => 'required|numeric|min:0',
             'reparacion.fecha_entrega' => 'required',
             'reparacion.garantia_tecnico' => 'required',
-            'reparacion.pagado' => 'required',
         ]);
 
         // Antes de tocar nada: una pieza ya cobrada en una venta no se quita ni
