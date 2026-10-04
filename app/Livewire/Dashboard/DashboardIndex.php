@@ -20,6 +20,8 @@ class DashboardIndex extends Component
     public $productos_reparacion = 0;
     public $productos_reserva = 0;
     public $productos_credito = 0;
+    public $por_cobrar = 0;
+    public $ventas_credito = 0;
 
     public function mount()
     {
@@ -29,7 +31,9 @@ class DashboardIndex extends Component
         $this->productos_oferta = Producto::disponibles()->where('tipo_venta', ProductoTipoVenta::Oferta->value)->count();
         $this->productos_reparacion = Producto::vigentes()->where('estado', ProductoEstado::Reparacion->value)->count();
         $this->productos_reserva = Producto::vigentes()->where('estado', ProductoEstado::Reserva->value)->count();
-        $this->productos_credito = Producto::where('estado', ProductoEstado::Credito->value)->count();
+        $this->productos_credito = Producto::vigentes()->where('estado', ProductoEstado::Credito->value)->count();
+        $this->por_cobrar = (float) Venta::conSaldo()->sum('saldo');
+        $this->ventas_credito = Venta::conSaldo()->count();
 
         $dia = [now()->startOfDay(), now()->endOfDay()];
         $mes = [now()->startOfMonth(), now()->endOfMonth()];

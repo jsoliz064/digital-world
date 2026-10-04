@@ -50,6 +50,10 @@ class AuditarProductos extends Command
         $this->costoCompraDescuadrado();
         $this->totalVentaDescuadrado();
         $this->totalCompraDescuadrado();
+        $this->pagadoDescuadrado();
+        $this->pagadaAtIncoherente();
+        $this->equiposConCobroIncoherente();
+        $this->creditoSinCliente();
 
         $this->newLine();
 
@@ -283,6 +287,58 @@ class AuditarProductos extends Command
         );
 
         $this->reportar('compras.total distinto de sus lineas', collect($filas), ['id', 'total', 'calculado']);
+    }
+
+    /** ventas.pagado es la suma cacheada de ventas_pagos (PagoService::sincronizar). */
+    private function pagadoDescuadrado(): void
+    {
+        $filas = DB::select(
+            'SELECT v.id, v.pagado, COALESCE(SUM(p.monto), 0) AS calculado
+               FROM ventas v
+          LEFT JOIN ventas_pagos p ON p.venta_id = v.id
+           GROUP BY v.id, v.pagado
+             HAVING ABS(v.pagado - COALESCE(SUM(p.monto), 0)) > 0.009'
+        );
+
+        $this->reportar('ventas.pagado distinto de sus pagos', collect($filas), ['id', 'pagado', 'calculado']);
+    }
+
+    /** pagada_at existe si y solo si no queda saldo. */
+    private function pagadaAtIncoherente(): void
+    {
+        $filas = DB::table('ventas')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->where('saldo', '>', 0)->whereNotNull('pagada_at'))
+                ->orWhere(fn($w) => $w->where('saldo', '<=', 0)->whereNull('pagada_at')))
+            ->select('id', 'total', 'pagado', 'saldo', 'pagada_at')
+            ->get();
+
+        $this->reportar('pagada_at en desacuerdo con el saldo', $filas, ['id', 'total', 'pagado', 'saldo', 'pagada_at']);
+    }
+
+    /** Un equipo de una venta con saldo esta en Credito; de una venta pagada, en Vendido. */
+    private function equiposConCobroIncoherente(): void
+    {
+        $filas = DB::table('ventas_detalles as vd')
+            ->join('ventas as v', 'v.id', '=', 'vd.venta_id')
+            ->join('productos as p', 'p.id', '=', 'vd.producto_id')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->where('v.saldo', '>', 0)->where('p.estado', '!=', ProductoEstado::Credito->value))
+                ->orWhere(fn($w) => $w->where('v.saldo', '<=', 0)->where('p.estado', '!=', ProductoEstado::Vendido->value)))
+            ->select('p.id', 'p.imei', 'p.estado', 'vd.venta_id', 'v.saldo')
+            ->get();
+
+        $this->reportar('Equipos cuyo estado no coincide con el cobro de su venta', $filas, ['id', 'imei', 'estado', 'venta_id', 'saldo']);
+    }
+
+    /** Una deuda tiene que estar atada a una ficha de cliente. */
+    private function creditoSinCliente(): void
+    {
+        $filas = DB::table('ventas')->where('saldo', '>', 0)->whereNull('cliente_id')
+            ->select('id', 'total', 'saldo', 'cliente')
+            ->get();
+
+        $this->reportar('Ventas a credito sin cliente', $filas, ['id', 'total', 'saldo', 'cliente']);
     }
 
     /** Imprime una comprobacion y cuenta el hallazgo si trajo filas. */

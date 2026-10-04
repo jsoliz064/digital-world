@@ -90,6 +90,11 @@
                     <p class="text-2xl">{{ $productos_reparacion }}</p>
                     <p>En reparación</p>
                     <p class="text-xs opacity-80">{{ $productos_reserva }} reservados · {{ $productos_credito }} a crédito</p>
+                    @can('cobranza.index')
+                        <a href="{{ route('cobranzas') }}" class="text-xs underline opacity-90">
+                            Por cobrar: Bs {{ number_format($por_cobrar, 2) }} ({{ $ventas_credito }} venta(s))
+                        </a>
+                    @endcan
                 </div>
             </div>
 
