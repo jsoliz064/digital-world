@@ -13,5 +13,9 @@ class MetodoPagoSeeder extends Seeder
         foreach (['Efectivo', 'QR', 'Transferencia', 'Tarjeta'] as $orden => $nombre) {
             MetodoPago::firstOrCreate(['nombre' => $nombre], ['orden' => $orden + 1, 'activo' => true]);
         }
+
+        // De sistema: el equipo recibido en permuta es el pago. No se ofrece al
+        // cobrar a mano ni se edita.
+        MetodoPago::firstOrCreate(['nombre' => MetodoPago::PERMUTA], ['orden' => 99, 'activo' => true, 'sistema' => true]);
     }
 }

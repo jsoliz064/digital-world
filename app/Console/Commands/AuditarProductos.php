@@ -54,6 +54,9 @@ class AuditarProductos extends Command
         $this->pagadaAtIncoherente();
         $this->equiposConCobroIncoherente();
         $this->creditoSinCliente();
+        $this->reservasDescuadradas();
+        $this->reservasConcretadasSinSena();
+        $this->permutasDescuadradas();
 
         $this->newLine();
 
@@ -139,10 +142,14 @@ class AuditarProductos extends Command
             ->whereNotExists(fn($q) => $q->select(DB::raw(1))
                 ->from('compras_detalles as cd')
                 ->whereColumn('cd.producto_id', 'p.id'))
+            // Los recibidos en permuta no vienen de una compra: su origen es el pago.
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))
+                ->from('ventas_pagos as vp')
+                ->whereColumn('vp.producto_id', 'p.id'))
             ->select('p.id', 'p.imei', 'p.created_at')
             ->get();
 
-        $this->reportar('Productos sin linea de compra', $filas, ['id', 'imei', 'created_at']);
+        $this->reportar('Productos sin linea de compra ni permuta', $filas, ['id', 'imei', 'created_at']);
     }
 
     /** Lo que impide el indice unico de productos.imei. */
@@ -339,6 +346,55 @@ class AuditarProductos extends Command
             ->get();
 
         $this->reportar('Ventas a credito sin cliente', $filas, ['id', 'total', 'saldo', 'cliente']);
+    }
+
+    /** Equipo en Reserva sin reserva activa, o reserva activa con el equipo en otro estado. */
+    private function reservasDescuadradas(): void
+    {
+        $sinReserva = DB::table('productos as p')
+            ->where('p.estado', ProductoEstado::Reserva->value)
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('reservas as r')
+                ->whereColumn('r.producto_id', 'p.id')->where('r.estado', 'Activa'))
+            ->select('p.id', 'p.imei', 'p.estado', DB::raw('NULL as reserva_id'))
+            ->get();
+
+        $otroEstado = DB::table('reservas as r')
+            ->join('productos as p', 'p.id', '=', 'r.producto_id')
+            ->where('r.estado', 'Activa')
+            ->where('p.estado', '!=', ProductoEstado::Reserva->value)
+            ->select('p.id', 'p.imei', 'p.estado', 'r.id as reserva_id')
+            ->get();
+
+        $this->reportar('Equipos en Reserva sin reserva activa, o al reves', $sinReserva->merge($otroEstado), ['id', 'imei', 'estado', 'reserva_id']);
+    }
+
+    /** Una reserva concretada deja su seña como pago de la venta. */
+    private function reservasConcretadasSinSena(): void
+    {
+        $filas = DB::table('reservas as r')
+            ->where('r.estado', 'Concretada')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('ventas_pagos as vp')
+                ->whereColumn('vp.venta_id', 'r.venta_id')->where('vp.momento', 'Sena')
+                ->whereColumn('vp.monto', 'r.sena'))
+            ->select('r.id', 'r.venta_id', 'r.sena')
+            ->get();
+
+        $this->reportar('Reservas concretadas sin la seña en su venta', $filas, ['id', 'venta_id', 'sena']);
+    }
+
+    /** El pago de permuta y el costo del equipo recibido son la misma cifra. */
+    private function permutasDescuadradas(): void
+    {
+        $filas = DB::table('ventas_pagos as vp')
+            ->join('metodos_pago as m', 'm.id', '=', 'vp.metodo_pago_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'vp.producto_id')
+            ->where(fn($q) => $q
+                ->where(fn($w) => $w->where('m.sistema', true)->whereNull('vp.producto_id'))
+                ->orWhere(fn($w) => $w->whereNotNull('vp.producto_id')->whereRaw('ABS(vp.monto - p.costo_unidad) > 0.009')))
+            ->select('vp.id', 'vp.venta_id', 'vp.monto', 'vp.producto_id', 'p.costo_unidad')
+            ->get();
+
+        $this->reportar('Pagos de permuta sin equipo o con otro costo', $filas, ['id', 'venta_id', 'monto', 'producto_id', 'costo_unidad']);
     }
 
     /** Imprime una comprobacion y cuenta el hallazgo si trajo filas. */

@@ -33,6 +33,7 @@ class VentaDetalle extends Model
         'garantia_meses',
         'garantia_fecha_exp',
         'tipo_venta',
+        'producto_asociado_id',
     ];
 
     protected $casts = [
@@ -48,6 +49,12 @@ class VentaDetalle extends Model
     public function producto()
     {
         return $this->belongsTo(Producto::class, 'producto_id');
+    }
+
+    /** El equipo con el que se vendio este accesorio o repuesto, si lo hay. */
+    public function productoAsociado()
+    {
+        return $this->belongsTo(Producto::class, 'producto_asociado_id');
     }
 
     public function repuesto()

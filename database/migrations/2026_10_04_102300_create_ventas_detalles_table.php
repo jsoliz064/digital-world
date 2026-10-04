@@ -54,6 +54,9 @@ return new class extends Migration
             );
             // De donde salio el stock, congelada: anular la linea lo devuelve aqui.
             $table->unsignedBigInteger('sucursal_id')->nullable();
+            // Un accesorio o repuesto que se vendio CON este equipo (la funda
+            // del telefono): se agrupa bajo el en el detalle y en la nota.
+            $table->unsignedBigInteger('producto_asociado_id')->nullable();
             $table->unsignedInteger('cantidad')->default(1);
             $table->decimal('costo', 10, 2)->default(0);
             $table->decimal('precio', 10, 2)->default(0);
@@ -75,6 +78,7 @@ return new class extends Migration
             $table->foreign('producto_reparacion_repuesto_id', 'vd_reparacion_repuesto_fk')
                 ->references('id')->on('productos_reparaciones_repuestos')->restrictOnDelete();
             $table->foreign('sucursal_id', 'vd_sucursal_fk')->references('id')->on('sucursales')->nullOnDelete();
+            $table->foreign('producto_asociado_id', 'vd_producto_asociado_fk')->references('id')->on('productos')->restrictOnDelete();
 
             $table->unique('producto_id', 'ventas_detalles_producto_unico');
             $table->unique('producto_reparacion_repuesto_id', 'vd_reparacion_repuesto_unico');
@@ -86,7 +90,8 @@ return new class extends Migration
             ADD CONSTRAINT vd_un_articulo CHECK ((producto_id IS NOT NULL) + (repuesto_id IS NOT NULL) + (accesorio_id IS NOT NULL) = 1),
             ADD CONSTRAINT vd_producto_unidad CHECK (producto_id IS NULL OR cantidad = 1),
             ADD CONSTRAINT vd_cantidad_positiva CHECK (cantidad >= 1),
-            ADD CONSTRAINT vd_cobro_es_repuesto CHECK (producto_reparacion_repuesto_id IS NULL OR repuesto_id IS NOT NULL)');
+            ADD CONSTRAINT vd_cobro_es_repuesto CHECK (producto_reparacion_repuesto_id IS NULL OR repuesto_id IS NOT NULL),
+            ADD CONSTRAINT vd_asociado_es_articulo CHECK (producto_asociado_id IS NULL OR producto_id IS NULL)');
     }
 
     public function down(): void

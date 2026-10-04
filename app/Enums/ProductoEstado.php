@@ -67,15 +67,16 @@ enum ProductoEstado: string
     }
 
     /**
-     * Los que solo escribe una venta, nunca el selector de estado: elegirlos a
-     * mano dejaria un equipo "vendido" sin venta, que es lo primero que caza el
-     * auditor.
+     * Los que solo escribe un documento, nunca el selector de estado: Vendido y
+     * Credito una venta, Reserva una reserva (ReservaService). Elegirlos a mano
+     * dejaria un equipo "vendido" sin venta o "reservado" sin cliente ni seña,
+     * que es lo primero que caza el auditor.
      *
      * @return string[]
      */
     public static function soloPorDocumento(): array
     {
-        return self::vendidos();
+        return [...self::vendidos(), self::Reserva->value];
     }
 
     /**

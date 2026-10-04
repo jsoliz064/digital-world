@@ -177,6 +177,13 @@ class CompraService
      */
     public function quitarProducto(Producto $producto): void
     {
+        // Recibido en permuta: es el pago de una venta. Se va anulando esa venta.
+        if ($producto->permuta()->exists()) {
+            throw ValidationException::withMessages([
+                'detalles' => "El equipo {$producto->imei} se recibió en permuta: para quitarlo, anula la venta #{$producto->permuta->venta_id}.",
+            ]);
+        }
+
         if ($producto->ventaDetalle()->exists() || $producto->reparaciones()->exists() || $producto->regalos()->exists()) {
             throw ValidationException::withMessages([
                 'detalles' => "El equipo {$producto->imei} ya tiene ventas, reparaciones o regalos: no se puede quitar de la compra. Dalo de baja si ya no existe.",

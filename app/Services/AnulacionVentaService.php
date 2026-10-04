@@ -94,6 +94,10 @@ class AnulacionVentaService
             $this->repuestos->cancelarCobros($venta, $linea->producto_id);
             $linea->delete();
 
+            // Sus accesorios quedan en la venta, ya sin agrupar bajo el.
+            VentaDetalle::where('venta_id', $ventaId)->where('producto_asociado_id', $linea->producto_id)
+                ->update(['producto_asociado_id' => null]);
+
             // La precondicion importa: si el producto ya no esta vendido,
             // alguien lo movio y bajarlo a Inventario pisaria ese cambio.
             $this->estados->cambiar(

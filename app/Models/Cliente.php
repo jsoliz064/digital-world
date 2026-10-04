@@ -29,6 +29,11 @@ class Cliente extends Model
         return $this->hasMany(Venta::class, 'cliente_id');
     }
 
+    public function reservas()
+    {
+        return $this->hasMany(Reserva::class, 'cliente_id');
+    }
+
     /** Lo que debe: la suma de los saldos de sus ventas a credito. */
     public function deuda(): float
     {

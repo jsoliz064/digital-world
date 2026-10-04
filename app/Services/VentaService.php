@@ -46,20 +46,37 @@ class VentaService
         private StockService $stock,
         private RepuestosDeReparacionService $cobros,
         private PagoService $pagos,
+        private ReservaService $reservas,
+        private PermutaService $permutas,
     ) {}
 
     /**
      * Registra una venta completa.
      *
-     * @param  array  $cabecera  sucursal_id, cliente_id, cliente (texto), descuento, mano_obra
+     * @param  array  $cabecera  sucursal_id, cliente_id, cliente (texto), descuento, mano_obra, reserva_id
      * @param  array  $lineas    ver el docblock de la clase
      * @param  array  $cobros    cobros de taller (formato de RepuestosDeReparacionService)
      * @param  array  $pagos     lo cobrado al vender (formato de PagoService::registrar)
+     * @param  array|null  $permuta  el equipo recibido (formato de PermutaService::recibir)
      */
-    public function registrar(array $cabecera, array $lineas, array $cobros, array $pagos, User $user, ?string $clave = null): Venta
+    public function registrar(array $cabecera, array $lineas, array $cobros, array $pagos, User $user, ?string $clave = null, ?array $permuta = null): Venta
     {
         $lineas = $this->normalizar($lineas);
         $sucursalId = (int) $cabecera['sucursal_id'];
+
+        // La reserva primero: es la primera en el orden de bloqueo. Su equipo
+        // tiene que estar en la venta y su cliente es el de la venta.
+        $reserva = null;
+        if (!empty($cabecera['reserva_id'])) {
+            $reserva = $this->reservas->bloquearActiva((int) $cabecera['reserva_id']);
+
+            if (!$lineas->contains(fn($l) => $l['tipo'] === LineaTipo::Producto->value && $l['id'] === (int) $reserva->producto_id)) {
+                throw ValidationException::withMessages(['detalles' => 'El equipo reservado tiene que estar en la venta.']);
+            }
+
+            $cabecera['cliente_id'] = $reserva->cliente_id;
+            $cabecera['cliente'] = $reserva->cliente?->nombre;
+        }
 
         // Se calculan los totales ANTES de crear la cabecera: asi la bitacora de
         // la venta registra una fila con los totales reales, y no un 'creado'
@@ -77,17 +94,20 @@ class VentaService
             'mano_obra' => round((float) ($cabecera['mano_obra'] ?? 0), 2),
         ] + $this->totalesPrevios($lineas, $equipos, $articulos, $cabecera));
 
-        // A credito si lo cobrado no cubre el total (con los cobros de taller).
+        // A credito si lo cobrado no cubre el total (con los cobros de taller):
+        // los pagos de la pantalla, la seña de la reserva y la permuta.
         $totalPrevisto = (float) $venta->total + $this->cobros->totalPrevisto($cobros);
-        $cobrado = round(array_sum(array_map(fn($p) => (float) ($p['monto'] ?? 0), $pagos)), 2);
+        $cobrado = round(array_sum(array_map(fn($p) => $this->montoPrevisto($p), $pagos))
+            + (float) ($reserva?->sena ?? 0) + (float) ($permuta['valor'] ?? 0), 2);
         $destino = $cobrado < round($totalPrevisto, 2) ? ProductoEstado::Credito : ProductoEstado::Vendido;
 
         foreach ($lineas->where('tipo', LineaTipo::Producto->value)->sortBy('id') as $linea) {
-            $this->venderEquipo($venta, $linea, $destino);
+            $esReservado = $reserva && $linea['id'] === (int) $reserva->producto_id;
+            $this->venderEquipo($venta, $linea, $destino, $esReservado ? ProductoEstado::Reserva : null);
         }
 
         foreach ($lineas->where('tipo', '!=', LineaTipo::Producto->value)->sortBy(fn($l) => $l['tipo'] . ':' . str_pad($l['id'], 12, '0', STR_PAD_LEFT)) as $linea) {
-            $this->venderArticulo($venta, $linea, $articulos[$linea['tipo'] . ':' . $linea['id']]);
+            $this->venderArticulo($venta, $linea, $articulos[$linea['tipo'] . ':' . $linea['id']], $this->asociadoValido($linea, $lineas));
         }
 
         $this->cobros->registrar($venta, $cobros);
@@ -95,8 +115,28 @@ class VentaService
         $this->stock->recalcularTotales();
         $venta->recalcularTotales();
 
-        // Despues de los totales: el saldo se mide contra el total real.
+        // Despues de los totales: el saldo se mide contra el total real. La
+        // seña y la permuta primero (no dependen del vendedor), lo cobrado a
+        // mano al final.
+        if ($reserva) {
+            $this->reservas->concretar($reserva, $venta, $user);
+        }
+
+        if ($permuta) {
+            $this->permutas->recibir($venta, $permuta, $user, $clave);
+        }
+
         return $this->pagos->registrar($venta, $pagos, PagoMomento::Venta, $user, $clave);
+    }
+
+    /** El monto en Bs de una fila de pago, antes de que PagoService la valide. */
+    private function montoPrevisto(array $pago): float
+    {
+        if (($pago['moneda'] ?? 'BOB') === 'USD') {
+            return round((float) ($pago['monto_moneda'] ?? 0) * (float) ($pago['tipo_cambio'] ?? 0), 2);
+        }
+
+        return (float) ($pago['monto'] ?? 0);
     }
 
     /**
@@ -120,6 +160,7 @@ class VentaService
             if ($detalle->producto_id) {
                 $this->cobros->cancelarCobros($venta, $detalle->producto_id);
                 $detalle->delete();
+                $this->desasociar($venta, $detalle->producto_id);
                 $this->estados->cambiar(
                     $detalle->producto_id,
                     array_map(fn($v) => ProductoEstado::from($v), ProductoEstado::vendidos()),
@@ -145,7 +186,8 @@ class VentaService
 
             $tipo = $detalle->tipoLinea()->articulo();
             $this->stock->ajustarSalida($tipo, $detalle->{$tipo->columna()}, $detalle->sucursal_id, (int) $detalle->cantidad, $linea['cantidad']);
-            $detalle->update($this->importesArticulo($linea, (float) $detalle->costo));
+            $detalle->update($this->importesArticulo($linea, (float) $detalle->costo)
+                + ['producto_asociado_id' => $this->asociadoValido($linea, $lineas)]);
         }
 
         // 3. Lo nuevo.
@@ -159,7 +201,7 @@ class VentaService
         }
 
         foreach ($nuevas->where('tipo', '!=', LineaTipo::Producto->value) as $clave => $linea) {
-            $this->venderArticulo($venta, $linea, $articulos[$clave]);
+            $this->venderArticulo($venta, $linea, $articulos[$clave], $this->asociadoValido($linea, $lineas));
         }
 
         $this->cobros->registrar($venta, $cobros);
@@ -187,7 +229,7 @@ class VentaService
 
     // ------------------------------------------------------------------ lineas
 
-    private function venderEquipo(Venta $venta, array $linea, ProductoEstado $destino): void
+    private function venderEquipo(Venta $venta, array $linea, ProductoEstado $destino, ?ProductoEstado $esperado = null): void
     {
         // vender() bloquea el producto, exige que este disponible (y no dado de
         // baja) y anota en su bitacora desde el mismo $destino que el update.
@@ -198,6 +240,7 @@ class VentaService
                 . ', Bs ' . number_format(max(0, $linea['precio'] - $linea['descuento']), 2),
             ['venta_id' => $venta->id, 'sucursal_id' => $venta->sucursal_id],
             $destino,
+            $esperado,
         );
 
         VentaDetalle::create([
@@ -209,7 +252,7 @@ class VentaService
         ] + $this->importesEquipo($linea, (float) $producto->costo_total) + $this->garantia($linea));
     }
 
-    private function venderArticulo(Venta $venta, array $linea, float $costo): void
+    private function venderArticulo(Venta $venta, array $linea, float $costo, ?int $asociado = null): void
     {
         $tipo = LineaTipo::from($linea['tipo'])->articulo();
 
@@ -220,7 +263,26 @@ class VentaService
             'venta_id' => $venta->id,
             $tipo->columna() => $linea['id'],
             'sucursal_id' => $venta->sucursal_id,
+            'producto_asociado_id' => $asociado,
         ] + $this->importesArticulo($linea, $costo));
+    }
+
+    /**
+     * El equipo con el que se vende un accesorio, solo si es un equipo de ESTA
+     * venta: el id llega del navegador.
+     */
+    private function asociadoValido(array $linea, Collection $lineas): ?int
+    {
+        $id = (int) ($linea['con_producto_id'] ?? 0);
+
+        return $id > 0 && $lineas->contains(fn($l) => $l['tipo'] === LineaTipo::Producto->value && $l['id'] === $id) ? $id : null;
+    }
+
+    /** Un equipo que sale de la venta deja de agrupar a sus accesorios. */
+    private function desasociar(Venta $venta, int $productoId): void
+    {
+        VentaDetalle::where('venta_id', $venta->id)->where('producto_asociado_id', $productoId)
+            ->update(['producto_asociado_id' => null]);
     }
 
     private function importesEquipo(array $linea, float $costo): array
@@ -301,6 +363,7 @@ class VentaService
                 'precio' => $precio,
                 'descuento' => $descuento,
                 'garantia_meses' => $tipo === LineaTipo::Producto ? ($l['garantia_meses'] ?? null) : null,
+                'con_producto_id' => $tipo === LineaTipo::Producto ? null : ((int) ($l['con_producto_id'] ?? 0) ?: null),
             ];
         });
 

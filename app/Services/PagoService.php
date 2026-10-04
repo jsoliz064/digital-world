@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Enums\BitacoraEvento;
+use App\Enums\Moneda;
 use App\Enums\PagoMomento;
 use App\Enums\ProductoEstado;
 use App\Models\Bitacora;
 use App\Models\MetodoPago;
+use App\Models\Producto;
+use App\Models\Reserva;
 use App\Models\User;
 use App\Models\Venta;
 use App\Models\VentaPago;
@@ -22,11 +25,18 @@ use Illuminate\Validation\ValidationException;
  * llaman todos los flujos que mueven el total o lo cobrado: registrar y anular
  * un pago, editar la venta y anular una linea.
  *
+ * Tres clases de pago, todas con `monto` en Bs:
+ *  - el que se cobra a mano (registrar): en Bs o en USD con su tipo de cambio;
+ *  - la PERMUTA (registrarPermuta): el equipo recibido es el pago, con el
+ *    metodo de sistema «Permuta»;
+ *  - la SEÑA de una reserva (registrarSena), que entra al concretarla.
+ * Las dos ultimas no se anulan sueltas: se deshacen anulando la venta.
+ *
  * Se llama "pago" y no "cobro" porque "cobro" ya es, en el codigo, el cobro de
  * las piezas de una reparacion (RepuestosDeReparacionService).
  *
- * ORDEN DE BLOQUEO: la venta primero, despues sus equipos (por id). Es el mismo
- * orden en todos los flujos; en otro, dos cobros simultaneos se bloquearian.
+ * ORDEN DE BLOQUEO: la reserva (si la hay), la venta, sus equipos (por id) y el
+ * stock. El mismo en todos los flujos.
  *
  * Ningun metodo abre transaccion: la abre el componente.
  */
@@ -35,9 +45,11 @@ class PagoService
     public function __construct(private EstadoProductoService $estados) {}
 
     /**
-     * Registra uno o varios pagos de una venta.
+     * Registra uno o varios pagos cobrados a mano.
      *
-     * @param  array  $pagos  [['metodo_pago_id' => int, 'monto' => float, 'nota' => ?string], ...]
+     * @param  array  $pagos  [['metodo_pago_id', 'monto' (Bs), 'moneda' (BOB|USD),
+     *                         'monto_moneda' (USD), 'tipo_cambio', 'nota'], ...]
+     *                        En USD, el monto en Bs se calcula aqui (USD x TC).
      *
      * @throws ValidationException si un metodo no esta activo, un monto no es
      *         positivo o la suma supera el saldo (leido despues del bloqueo).
@@ -52,14 +64,7 @@ class PagoService
         }
 
         $suma = round(array_sum(array_column($pagos, 'monto')), 2);
-        $saldo = $venta->saldoPendiente();
-
-        if ($suma > $saldo) {
-            throw ValidationException::withMessages([
-                'pagos' => 'El cobro de Bs ' . number_format($suma, 2) . ' supera el saldo de la venta #' . $venta->id
-                    . ' (Bs ' . number_format($saldo, 2) . ').',
-            ]);
-        }
+        $this->exigirSaldo($venta, $suma);
 
         $metodos = MetodoPago::whereKey(array_column($pagos, 'metodo_pago_id'))->get()->keyBy('id');
         $frases = [];
@@ -67,27 +72,16 @@ class PagoService
         foreach ($pagos as $pago) {
             $metodo = $metodos->get($pago['metodo_pago_id']);
 
-            if (!$metodo || !$metodo->activo) {
+            // Los de sistema (Permuta) no se cobran a mano.
+            if (!$metodo || !$metodo->activo || $metodo->sistema) {
                 throw ValidationException::withMessages(['pagos' => 'Uno de los métodos de pago no existe o está desactivado.']);
             }
 
-            VentaPago::create([
-                'venta_id' => $venta->id,
-                'metodo_pago_id' => $metodo->id,
-                'monto' => $pago['monto'],
-                'momento' => $momento->value,
-                'fecha' => now(),
-                'nota' => $pago['nota'],
-                'user_id' => $user->id,
-                'clave_idempotencia' => $clave,
-            ]);
-
-            $frases[] = 'Bs ' . number_format($pago['monto'], 2) . ' en ' . $metodo->nombre;
+            $this->insertar($venta, $metodo->id, $pago, $momento, $user, $clave);
+            $frases[] = $this->frase($pago, $metodo->nombre);
         }
 
-        // anotar() antes del save de sincronizar(): una sola fila con la frase
-        // y el cambio de `pagado`.
-        $restante = round($saldo - $suma, 2);
+        $restante = round($venta->saldoPendiente() - $suma, 2);
         $venta->anotar(
             BitacoraEvento::Pago->value,
             ($momento === PagoMomento::Venta ? 'Cobrado al vender: ' : 'Cobro: ') . implode(' + ', $frases)
@@ -98,7 +92,53 @@ class PagoService
         return $this->sincronizar($venta);
     }
 
-    /** Anula un pago: la venta vuelve a tener ese saldo. */
+    /** El equipo recibido en permuta como pago de la venta (PermutaService lo crea antes). */
+    public function registrarPermuta(Venta $venta, Producto $recibido, float $valor, User $user, ?string $clave = null): Venta
+    {
+        $venta = Venta::whereKey($venta->id)->lockForUpdate()->firstOrFail();
+        $valor = round($valor, 2);
+        $this->exigirSaldo($venta, $valor);
+
+        $metodoId = MetodoPago::permutaId() ?? throw new \LogicException('Falta el método de sistema «Permuta» (MetodoPagoSeeder).');
+
+        $this->insertar($venta, $metodoId, [
+            'monto' => $valor, 'moneda' => Moneda::BOB->value, 'monto_moneda' => null, 'tipo_cambio' => null,
+            'nota' => null, 'producto_id' => $recibido->id,
+        ], PagoMomento::Venta, $user, $clave);
+
+        $venta->anotar(
+            BitacoraEvento::Pago->value,
+            'Permuta: recibido el equipo IMEI ' . $recibido->imei . ' por Bs ' . number_format($valor, 2) . '.',
+            ['venta_id' => $venta->id],
+        );
+
+        return $this->sincronizar($venta);
+    }
+
+    /** La seña de una reserva que se concreta en esta venta (ReservaService::concretar). */
+    public function registrarSena(Venta $venta, Reserva $reserva, User $user): Venta
+    {
+        $venta = Venta::whereKey($venta->id)->lockForUpdate()->firstOrFail();
+        $this->exigirSaldo($venta, (float) $reserva->sena);
+
+        // El metodo de la seña aunque hoy este desactivado: el dinero entro
+        // cuando entro. La fecha es la de la reserva.
+        $this->insertar($venta, $reserva->metodo_pago_id, [
+            'monto' => round((float) $reserva->sena, 2), 'moneda' => Moneda::BOB->value, 'monto_moneda' => null,
+            'tipo_cambio' => null, 'nota' => 'Seña de la reserva #' . $reserva->id, 'producto_id' => null,
+            'fecha' => $reserva->created_at,
+        ], PagoMomento::Sena, $user, null);
+
+        $venta->anotar(
+            BitacoraEvento::Pago->value,
+            'Seña de la reserva #' . $reserva->id . ': Bs ' . number_format((float) $reserva->sena, 2) . '.',
+            ['venta_id' => $venta->id],
+        );
+
+        return $this->sincronizar($venta);
+    }
+
+    /** Anula un pago cobrado a mano: la venta vuelve a tener ese saldo. */
     public function anular(VentaPago $pago, User $user): Venta
     {
         $venta = Venta::whereKey($pago->venta_id)->lockForUpdate()->firstOrFail();
@@ -108,10 +148,20 @@ class PagoService
             throw ValidationException::withMessages(['pagos' => 'Ese pago ya no existe: alguien lo anuló. Recarga la pantalla.']);
         }
 
+        // La permuta y la seña son parte del trato: deshacerlas sueltas dejaria
+        // un equipo recibido sin pago o una reserva concretada sin seña.
+        if ($pago->esPermuta() || $pago->esSena()) {
+            throw ValidationException::withMessages([
+                'pagos' => ($pago->esPermuta() ? 'La permuta' : 'La seña') . ' no se anula sola: para deshacerla, anula la venta.',
+            ]);
+        }
+
         $venta->anotar(
             BitacoraEvento::PagoAnulado->value,
-            'Pago anulado por ' . $user->name . ': Bs ' . number_format((float) $pago->monto, 2)
-                . ' en ' . ($pago->metodo?->nombre ?? 'método') . ' del ' . $pago->fecha->format('d/m/Y H:i') . '.',
+            'Pago anulado por ' . $user->name . ': ' . $this->frase([
+                'monto' => (float) $pago->monto, 'moneda' => $pago->moneda->value,
+                'monto_moneda' => $pago->monto_moneda, 'tipo_cambio' => $pago->tipo_cambio,
+            ], $pago->metodo?->nombre ?? 'método') . ' del ' . $pago->fecha->format('d/m/Y H:i') . '.',
             ['venta_id' => $venta->id],
         );
         $pago->delete();
@@ -121,10 +171,14 @@ class PagoService
 
     /**
      * Borra todos los pagos de una venta que se va a anular entera. Uno por uno
-     * en la bitacora: se entiende que el dinero se devolvio.
+     * en la bitacora: se entiende que el dinero se devolvio. La permuta devuelve
+     * el equipo recibido (o impide anular si ya se vendio) y la reserva
+     * concretada queda cancelada con la seña devuelta.
      */
-    public function anularTodos(Venta $venta, string $motivo): void
+    public function anularTodos(Venta $venta, string $motivo, ?User $user = null): void
     {
+        $user ??= auth()->user();
+
         foreach ($venta->pagos()->with('metodo')->orderBy('id')->get() as $pago) {
             // registrar() y no anotar(): la venta se borra a continuacion y no
             // habra un save() que lleve la nota.
@@ -134,8 +188,17 @@ class PagoService
                 'Pago de Bs ' . number_format((float) $pago->monto, 2) . ' en ' . ($pago->metodo?->nombre ?? 'método') . " anulado: {$motivo}",
                 ['venta_id' => $venta->id],
             );
+
+            $productoRecibido = $pago->producto_id;
             $pago->delete();
+
+            if ($productoRecibido) {
+                app(PermutaService::class)->devolver($productoRecibido, $venta);
+            }
         }
+
+        // Lazy: ReservaService usa este servicio para la seña.
+        app(ReservaService::class)->deshacerConcrecion($venta, $user);
     }
 
     /**
@@ -172,6 +235,55 @@ class PagoService
         return $venta;
     }
 
+    /** El ultimo tipo de cambio usado, para proponerlo (6,96 si nunca se cobro en USD). */
+    public static function ultimoTipoCambio(): float
+    {
+        return (float) (VentaPago::where('moneda', Moneda::USD->value)->latest('id')->value('tipo_cambio') ?? 6.96);
+    }
+
+    // ------------------------------------------------------------------ apoyo
+
+    private function exigirSaldo(Venta $venta, float $suma): void
+    {
+        $saldo = $venta->saldoPendiente();
+
+        if (round($suma, 2) > $saldo) {
+            throw ValidationException::withMessages([
+                'pagos' => 'El cobro de Bs ' . number_format($suma, 2) . ' supera el saldo de la venta #' . $venta->id
+                    . ' (Bs ' . number_format($saldo, 2) . ').',
+            ]);
+        }
+    }
+
+    private function insertar(Venta $venta, int $metodoId, array $pago, PagoMomento $momento, User $user, ?string $clave): void
+    {
+        VentaPago::create([
+            'venta_id' => $venta->id,
+            'metodo_pago_id' => $metodoId,
+            'monto' => $pago['monto'],
+            'moneda' => $pago['moneda'] ?? Moneda::BOB->value,
+            'monto_moneda' => $pago['monto_moneda'] ?? null,
+            'tipo_cambio' => $pago['tipo_cambio'] ?? null,
+            'producto_id' => $pago['producto_id'] ?? null,
+            'momento' => $momento->value,
+            'fecha' => $pago['fecha'] ?? now(),
+            'nota' => $pago['nota'] ?? null,
+            'user_id' => $user->id,
+            'clave_idempotencia' => $clave,
+        ]);
+    }
+
+    private function frase(array $pago, string $metodo): string
+    {
+        $texto = 'Bs ' . number_format((float) $pago['monto'], 2) . ' en ' . $metodo;
+
+        if (($pago['moneda'] ?? 'BOB') === Moneda::USD->value) {
+            $texto .= ' (USD ' . number_format((float) $pago['monto_moneda'], 2) . ' a ' . (float) $pago['tipo_cambio'] . ')';
+        }
+
+        return $texto;
+    }
+
     /** Los equipos de la venta a Credito o a Vendido, solo los que no lo esten ya. */
     private function moverEquipos(Venta $venta, ProductoEstado $destino): void
     {
@@ -195,17 +307,37 @@ class PagoService
         }
     }
 
-    /** @return array<int, array{metodo_pago_id:int, monto:float, nota:?string}> */
+    /**
+     * Las filas del formulario, limpias. Dos filas del mismo metodo y moneda
+     * son un solo pago: lo exige tambien el indice vp_clave_idem_venta_metodo_unico.
+     *
+     * @return array<int, array{metodo_pago_id:int, monto:float, moneda:string, monto_moneda:?float, tipo_cambio:?float, nota:?string}>
+     */
     private function normalizar(array $pagos): array
     {
         $limpios = [];
 
         foreach ($pagos as $pago) {
+            $moneda = Moneda::tryFrom((string) ($pago['moneda'] ?? 'BOB')) ?? Moneda::BOB;
+            $usd = round((float) ($pago['monto_moneda'] ?? 0), 2);
+            $tc = round((float) ($pago['tipo_cambio'] ?? 0), 4);
             $monto = round((float) ($pago['monto'] ?? 0), 2);
 
+            // En USD manda dolares x tasa. Se respeta el monto en Bs que llega
+            // solo si difiere por redondeo: un cobro en USD repartido entre
+            // varias ventas convierte cada parte, y sin esto quedaba un centavo
+            // por encima del saldo.
+            if ($moneda === Moneda::USD && abs($monto - round($usd * $tc, 2)) > 0.05) {
+                $monto = round($usd * $tc, 2);
+            }
+
             // Fila vacia del formulario.
-            if ($monto == 0.0 && empty($pago['metodo_pago_id'])) {
+            if ($monto == 0.0 && ($moneda === Moneda::BOB || $usd == 0.0) && empty($pago['metodo_pago_id'])) {
                 continue;
+            }
+
+            if ($moneda === Moneda::USD && ($usd <= 0 || $tc <= 0)) {
+                throw ValidationException::withMessages(['pagos' => 'Un pago en dólares necesita el monto en USD y el tipo de cambio.']);
             }
 
             if ($monto <= 0) {
@@ -216,19 +348,28 @@ class PagoService
                 throw ValidationException::withMessages(['pagos' => 'Elige el método de cada pago.']);
             }
 
-            // Dos filas del mismo metodo son un solo pago: lo exige tambien el
-            // indice vp_clave_idem_venta_metodo_unico.
             $metodo = (int) $pago['metodo_pago_id'];
+            $clave = $metodo . ':' . $moneda->value;
             $nota = trim((string) ($pago['nota'] ?? ''));
 
-            if (isset($limpios[$metodo])) {
-                $limpios[$metodo]['monto'] = round($limpios[$metodo]['monto'] + $monto, 2);
+            if (isset($limpios[$clave])) {
+                // Mismo metodo y moneda: se suman (en USD, con la tasa de la
+                // primera fila; dos tasas distintas en una venta serian raras).
+                if ($moneda === Moneda::USD) {
+                    $limpios[$clave]['monto_moneda'] = round($limpios[$clave]['monto_moneda'] + $usd, 2);
+                    $limpios[$clave]['monto'] = round($limpios[$clave]['monto_moneda'] * $limpios[$clave]['tipo_cambio'], 2);
+                } else {
+                    $limpios[$clave]['monto'] = round($limpios[$clave]['monto'] + $monto, 2);
+                }
                 continue;
             }
 
-            $limpios[$metodo] = [
+            $limpios[$clave] = [
                 'metodo_pago_id' => $metodo,
                 'monto' => $monto,
+                'moneda' => $moneda->value,
+                'monto_moneda' => $moneda === Moneda::USD ? $usd : null,
+                'tipo_cambio' => $moneda === Moneda::USD ? $tc : null,
                 'nota' => $nota === '' ? null : mb_substr($nota, 0, 255),
             ];
         }

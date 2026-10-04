@@ -109,6 +109,11 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'pago.create'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'pago.anular'])->syncRoles([$role1]);
 
+        //RESERVAS (equipo apartado con seña)
+        Permission::firstOrCreate(['name' => 'reserva.index'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'reserva.create'])->syncRoles([$role1, $role2]);
+        Permission::firstOrCreate(['name' => 'reserva.cancelar'])->syncRoles([$role1, $role2]);
+
         //METODOS DE PAGO
         Permission::firstOrCreate(['name' => 'metodo-pago.index'])->syncRoles([$role1]);
         Permission::firstOrCreate(['name' => 'metodo-pago.create'])->syncRoles([$role1]);
@@ -116,12 +121,11 @@ class RoleSeeder extends Seeder
         Permission::firstOrCreate(['name' => 'metodo-pago.delete'])->syncRoles([$role1]);
 
         // Estados que el usuario puede ELEGIR en el selector (filtra por estos).
-        // Vendido y Credito solo los escribe una venta: no tienen permiso de
-        // seleccion (ProductoEstado::soloPorDocumento()).
+        // Vendido y Credito solo los escribe una venta, y Reserva una reserva:
+        // no tienen permiso de seleccion (ProductoEstado::soloPorDocumento()).
         Permission::firstOrCreate(['name' => 'producto.estado.inventario'])->syncRoles([$role1, $role2, $role3]);
         Permission::firstOrCreate(['name' => 'producto.estado.reparacion'])->syncRoles([$role1, $role2, $role3]);
         Permission::firstOrCreate(['name' => 'producto.estado.fuera'])->syncRoles([$role1, $role2]);
         Permission::firstOrCreate(['name' => 'producto.estado.roto'])->syncRoles([$role1, $role2]);
-        Permission::firstOrCreate(['name' => 'producto.estado.reserva'])->syncRoles([$role1, $role2]);
     }
 }

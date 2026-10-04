@@ -104,17 +104,24 @@ class EstadoProductoService
      * del lote, sin guardar el valor anterior en ninguna parte: al cancelar la
      * venta no habia nada que restaurar.
      */
-    public function vender(int $productoId, string $descripcion, array $enlaces = [], ProductoEstado $destino = ProductoEstado::Vendido): Producto
-    {
+    public function vender(
+        int $productoId,
+        string $descripcion,
+        array $enlaces = [],
+        ProductoEstado $destino = ProductoEstado::Vendido,
+        ?ProductoEstado $esperado = null,
+    ): Producto {
         // Vendido o Credito: lo decide VentaService segun lo cobrado, ANTES de
         // vender, para que el historial no anote Vendido y enseguida Credito.
         if (!in_array($destino->value, ProductoEstado::vendidos(), true)) {
             throw new \LogicException("vender() solo lleva a un estado vendido, no a {$destino->value}.");
         }
 
+        // Esperado: disponible, o Reserva cuando la venta concreta SU reserva
+        // (VentaService ya bloqueo la reserva y comprobo que es de este equipo).
         return $this->cambiar(
             $productoId,
-            array_map(fn($valor) => ProductoEstado::from($valor), ProductoEstado::disponibles()),
+            $esperado ?? array_map(fn($valor) => ProductoEstado::from($valor), ProductoEstado::disponibles()),
             $destino,
             $descripcion,
             $enlaces,

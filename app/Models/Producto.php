@@ -119,6 +119,26 @@ class Producto extends Model
         return $this->hasOneThrough(Compra::class, CompraDetalle::class, 'producto_id', 'id', 'id', 'compra_id');
     }
 
+    /**
+     * El pago de permuta con el que entro este equipo, si no vino de una
+     * compra: es su origen y su costo (docs/03, permuta).
+     */
+    public function permuta()
+    {
+        return $this->hasOne(VentaPago::class, 'producto_id');
+    }
+
+    public function reservas()
+    {
+        return $this->hasMany(Reserva::class, 'producto_id');
+    }
+
+    /** La reserva activa, si esta en estado Reserva. */
+    public function reservaActiva()
+    {
+        return $this->hasOne(Reserva::class, 'producto_id')->where('estado', \App\Enums\ReservaEstado::Activa->value);
+    }
+
     /** La linea de venta, si esta vendido (un telefono, una sola venta). */
     public function ventaDetalle()
     {

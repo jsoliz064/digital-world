@@ -11,12 +11,15 @@ enum PagoMomento: string
 {
     case Venta = 'Venta';
     case Cobro = 'Cobro';
+    // La seña de una reserva, que entra como pago de la venta al concretarla.
+    case Sena = 'Sena';
 
     public function label(): string
     {
         return match ($this) {
             self::Venta => 'Al vender',
             self::Cobro => 'Cobro',
+            self::Sena => 'Seña de reserva',
         };
     }
 
