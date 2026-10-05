@@ -211,7 +211,9 @@ class CompraLoteAddModelModal extends Component
     public function open($modelId)
     {
         $this->selectedModel = ProductoModelo::with('almacenamientos')->find($modelId);
-        $this->resetForm();
+        // Limpio: al elegir un modelo, los datos del ultimo equipo (quiza de
+        // otro modelo) se colaban en el formulario.
+        $this->resetForm(false);
         $this->openModal = true;
 
         // El precio de referencia del modelo, si ya lo cargaron: 128GB por defecto.
@@ -251,13 +253,23 @@ class CompraLoteAddModelModal extends Component
         }
     }
 
-    public function resetForm()
+    /**
+     * @param  bool  $copiarUltimo  true en «Guardar y continuar»: copia los
+     *         valores del ultimo equipo de esta compra, porque en un lote los
+     *         equipos suelen repetirse y asi solo se cambia lo que difiere.
+     *         false al abrir desde un modelo: el formulario arranca limpio.
+     */
+    public function resetForm(bool $copiarUltimo = true)
     {
         $this->resetErrorBag();
 
-        // Los valores del ultimo equipo de esta compra: en un lote, los equipos
-        // suelen repetirse y asi solo se cambia lo que difiere.
-        $ultimo = Compra::find($this->compra->id)?->productos()->orderByDesc('productos.id')->first();
+        $ultimo = $copiarUltimo
+            ? Compra::find($this->compra->id)?->productos()->orderByDesc('productos.id')->first()
+            : null;
+
+        if (!$copiarUltimo) {
+            $this->almacenamiento = null;
+        }
 
         $this->costo_unidad = $ultimo?->costo_unidad ?? 0;
         $this->precio_cliente = $ultimo?->precio_cliente ?? 0;
