@@ -32,8 +32,8 @@
                                     <th class="p-2 border-b text-left">Repuesto</th>
                                     <th class="p-2 border-b text-center">Reparación</th>
                                     <th class="p-2 border-b text-center">Cant.</th>
-                                    <th class="p-2 border-b text-center">Precio ($)</th>
-                                    <th class="p-2 border-b text-right">Subtotal ($)</th>
+                                    <th class="p-2 border-b text-center">Precio (Bs)</th>
+                                    <th class="p-2 border-b text-right">Subtotal (Bs)</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-300">
