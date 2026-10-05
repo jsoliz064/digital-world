@@ -98,6 +98,11 @@ iPhone 13 — IMEI 358...4471
 
 Tres cosas pasan al mismo tiempo: **baja el stock** de esos accesorios, **sube el costo** del equipo, y queda **el detalle a la vista** de qué se regaló. Así el inventario de accesorios cuadra y la ganancia del equipo es la real.
 
+**Al vender el equipo, sus regalos salen en la venta.**
+- Aparecen solos debajo del celular, a **Bs 0**: en el formulario, en el detalle de la venta y en la nota.
+- No vuelven a descontar stock ni a sumar costo, porque eso ya pasó al regalarlos.
+- No se quitan ni se anulan sueltos: se van con su equipo. Si el equipo sale de la venta o la venta se anula, el equipo vuelve al inventario con sus regalos.
+
 ### Código de barras (UPC)
 
 Se agrega el campo **UPC** a la ficha del equipo, y se puede buscar por él.
