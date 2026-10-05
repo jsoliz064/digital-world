@@ -291,6 +291,7 @@ class ReparacionEditModal extends Component
         });
 
         $this->dispatch('refreshTecnicoProductoTable');
+        $this->dispatch('refreshProductoTable');
         toastr()->success('Reparacion actualizada exitosamente');
         $this->reset();
     }
