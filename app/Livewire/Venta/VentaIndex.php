@@ -67,7 +67,8 @@ class VentaIndex extends Component
         $this->cantidadVentas = (clone $query)->count();
         $this->totalGanancia = round($this->totalVenta - (float) (clone $query)->sum('costo_total'), 2);
 
-        $lineas = (clone $query)->join('ventas_detalles', 'ventas.id', '=', 'ventas_detalles.venta_id');
+        // Sin los regalos: no son articulos vendidos.
+        $lineas = (clone $query)->join('ventas_detalles', 'ventas.id', '=', 'ventas_detalles.venta_id')->whereNull('ventas_detalles.producto_regalo_id');
         $this->cantidadEquipos = (clone $lineas)->where('ventas_detalles.tipo', LineaTipo::Producto->value)->count();
         $this->cantidadArticulos = (int) (clone $lineas)->where('ventas_detalles.tipo', '!=', LineaTipo::Producto->value)->sum('ventas_detalles.cantidad');
     }

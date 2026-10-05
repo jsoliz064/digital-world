@@ -11,6 +11,7 @@ use App\Enums\ProductoGrado;
 use App\Models\Cliente;
 use App\Models\MetodoPago;
 use App\Models\Producto;
+use App\Models\ProductoRegalo;
 use App\Models\ProductoModelo;
 use App\Models\Reserva;
 use App\Models\Sucursal;
@@ -78,6 +79,13 @@ class VentaForm extends Component
 
     /** Cobros de taller ya registrados en la venta (edicion, solo lectura). */
     public array $cobrosExistentes = [];
+
+    /**
+     * Los accesorios regalados con cada equipo: producto_id => [['nombre',
+     * 'cantidad'], ...]. Solo para mostrarlos (precio 0, sin quitar): no viajan
+     * al guardar. VentaService los relee de la base y crea sus lineas.
+     */
+    public array $regalos = [];
 
     /** La reserva que se concreta (?reserva=). #[Locked]: decide que equipo y que seña. */
     #[Locked]
@@ -159,7 +167,15 @@ class VentaForm extends Component
         ];
 
         foreach ($venta->detalles as $d) {
-            if ($d->stockYaDescontado()) {
+            if ($d->esRegalo()) {
+                $this->regalos[$d->producto_asociado_id][] = [
+                    'nombre' => $d->accesorio?->nombre,
+                    'cantidad' => (int) $d->cantidad,
+                ];
+                continue;
+            }
+
+            if ($d->esCobro()) {
                 $this->cobrosExistentes[] = [
                     'nombre' => $d->repuesto?->nombre,
                     'cantidad' => (int) $d->cantidad,
@@ -273,6 +289,20 @@ class VentaForm extends Component
             'repuestos_elegibles' => app(RepuestosDeReparacionService::class)->contarElegibles($producto->id),
             'con_producto_id' => null,
         ]);
+
+        $regalos = $this->regalosDe($producto->id);
+
+        if ($regalos !== []) {
+            $this->regalos[$producto->id] = $regalos;
+        }
+    }
+
+    /** Los regalos del equipo, para mostrarlos bajo su linea. */
+    private function regalosDe(int $productoId): array
+    {
+        return ProductoRegalo::with('accesorio:id,nombre')->where('producto_id', $productoId)->orderBy('id')->get()
+            ->map(fn($r) => ['nombre' => $r->accesorio?->nombre, 'cantidad' => (int) $r->cantidad])
+            ->all();
     }
 
     private function agregarLineaArticulo(LineaTipo $lineaTipo, int $id, ?int $sucursalId): void
@@ -358,7 +388,7 @@ class VentaForm extends Component
                 return;
             }
 
-            unset($this->repuestosVenta[$productoId]);
+            unset($this->repuestosVenta[$productoId], $this->regalos[$productoId]);
             foreach ($this->lineas as $i => $l) {
                 if ((int) ($l['con_producto_id'] ?? 0) === (int) $productoId) {
                     $this->lineas[$i]['con_producto_id'] = null;

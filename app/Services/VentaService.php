@@ -31,6 +31,10 @@ use Illuminate\Validation\ValidationException;
  *    anularla lo devuelve ahi.
  *  - Ningun metodo abre transaccion: la abre el componente, que tambien
  *    resuelve la idempotencia (GuardadoIdempotenteTrait).
+ *  - Los REGALOS del equipo (productos_regalos) entran solos con el, como
+ *    lineas de accesorio a precio 0 y costo 0 (registrarRegalos): su costo ya
+ *    esta en el costo_total del equipo y su stock salio al regalarlos. Se
+ *    releen de la base, no llegan del formulario, y se borran con su equipo.
  *  - Lo cobrado lo escribe PagoService. Si queda saldo, la venta esta a
  *    credito (exige cliente) y sus equipos van a Credito en vez de Vendido; se
  *    decide ANTES de venderlos, para que el historial no anote dos cambios.
@@ -152,13 +156,15 @@ class VentaService
     public function actualizar(Venta $venta, array $cabecera, array $lineas, array $cobros): Venta
     {
         $lineas = $this->normalizar($lineas)->keyBy(fn($l) => $l['tipo'] . ':' . $l['id']);
-        $actuales = $venta->detalles()->whereNull('producto_reparacion_repuesto_id')->get()
+        // Ni los cobros ni los regalos entran en el diff: no llegan del formulario.
+        $actuales = $venta->detalles()->whereNull('producto_reparacion_repuesto_id')->whereNull('producto_regalo_id')->get()
             ->keyBy(fn($d) => $d->tipo . ':' . $d->{LineaTipo::from($d->tipo)->columna()});
 
         // 1. Lo que ya no esta: anular, equipos primero (descobrando antes).
         foreach ($actuales->diffKeys($lineas)->sortBy(fn($d) => $d->producto_id ? 0 : 1) as $detalle) {
             if ($detalle->producto_id) {
                 $this->cobros->cancelarCobros($venta, $detalle->producto_id);
+                VentaDetalle::borrarRegalosDe($venta->id, $detalle->producto_id);
                 $detalle->delete();
                 $this->desasociar($venta, $detalle->producto_id);
                 $this->estados->cambiar(
@@ -250,6 +256,37 @@ class VentaService
             'cantidad' => 1,
             'tipo_venta' => $producto->tipo_venta,
         ] + $this->importesEquipo($linea, (float) $producto->costo_total) + $this->garantia($linea));
+
+        $this->registrarRegalos($venta, $producto);
+    }
+
+    /**
+     * Una linea por cada accesorio regalado con el equipo, enlazada a el.
+     *
+     * Precio 0 y costo 0: el costo ya viaja en el costo_total del equipo, que
+     * su linea acaba de congelar, y contarlo otra vez duplicaria el costo de
+     * la venta. Sin retirar(): el stock salio cuando se regalo. Se releen de
+     * la base con el equipo ya bloqueado por vender(), y ProductoRegalosService
+     * bloquea el mismo equipo para cambiarlos: no pueden moverse en medio.
+     */
+    private function registrarRegalos(Venta $venta, Producto $producto): void
+    {
+        foreach ($producto->regalos()->orderBy('id')->get() as $regalo) {
+            VentaDetalle::create([
+                'venta_id' => $venta->id,
+                'accesorio_id' => $regalo->accesorio_id,
+                'producto_regalo_id' => $regalo->id,
+                'producto_asociado_id' => $producto->id,
+                // La sucursal de donde salio el regalo, solo como dato.
+                'sucursal_id' => $regalo->sucursal_id,
+                'cantidad' => (int) $regalo->cantidad,
+                'costo' => 0,
+                'precio' => 0,
+                'descuento' => 0,
+                'subtotal' => 0,
+                'subtotal_costo' => 0,
+            ]);
+        }
     }
 
     private function venderArticulo(Venta $venta, array $linea, float $costo, ?int $asociado = null): void
@@ -282,6 +319,7 @@ class VentaService
     private function desasociar(Venta $venta, int $productoId): void
     {
         VentaDetalle::where('venta_id', $venta->id)->where('producto_asociado_id', $productoId)
+            ->whereNull('producto_regalo_id')
             ->update(['producto_asociado_id' => null]);
     }
 

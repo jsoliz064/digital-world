@@ -48,7 +48,13 @@ class VentaDestroyModal extends Component
     public function render()
     {
         return view('livewire.venta.modals.venta-destroy-modal', [
-            'venta' => $this->openModal && $this->ventaId ? Venta::withCount('detalles')->with('comision.user')->find($this->ventaId) : null,
+            // Los regalos no cuentan como lineas: se van con su equipo.
+            'venta' => $this->openModal && $this->ventaId
+                ? Venta::withCount([
+                    'detalles' => fn($q) => $q->whereNull('producto_regalo_id'),
+                    'detalles as regalos_count' => fn($q) => $q->whereNotNull('producto_regalo_id'),
+                ])->with('comision.user')->find($this->ventaId)
+                : null,
         ]);
     }
 }

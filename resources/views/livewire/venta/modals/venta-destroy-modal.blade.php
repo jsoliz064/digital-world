@@ -7,6 +7,9 @@
                 <p class="m-2 text-sm text-gray-700 dark:text-gray-300">
                     Se anulan sus {{ $venta->detalles_count }} línea(s) por Bs {{ number_format((float) $venta->total, 2) }}:
                     los equipos vuelven al inventario, los repuestos y accesorios a su stock, y los cobros de taller se descobran.
+                    @if ($venta->regalos_count > 0)
+                        Los regalos de los equipos se quedan con su equipo.
+                    @endif
                 </p>
                 @if ((float) $venta->pagado > 0)
                     <p class="m-2 text-sm font-semibold text-red-700 dark:text-red-300">

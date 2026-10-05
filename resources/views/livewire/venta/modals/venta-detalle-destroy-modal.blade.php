@@ -11,8 +11,8 @@
                 </p>
                 <p class="m-2 text-sm text-gray-600 dark:text-gray-300">
                     @if ($linea->producto_id)
-                        El equipo vuelve al inventario y se descobran sus repuestos de taller.
-                    @elseif ($linea->stockYaDescontado())
+                        El equipo vuelve al inventario y se descobran sus repuestos de taller. Sus regalos se quedan con él.
+                    @elseif ($linea->esCobro())
                         Se anula el cobro. La pieza sigue montada en el equipo: no vuelve al stock.
                     @else
                         Las unidades vuelven al stock de la sucursal de la venta.

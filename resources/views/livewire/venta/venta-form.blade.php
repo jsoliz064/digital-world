@@ -137,6 +137,25 @@
                                     <button type="button" wire:click="quitarLinea({{ $index }})" class="text-red-600 hover:text-red-800 text-lg" title="Quitar">&times;</button>
                                 </td>
                             </tr>
+                            {{-- Los regalos del equipo: van con el a precio 0, sin quitar (se quitan desde la ficha del equipo). --}}
+                            @if ($esEquipo)
+                                @foreach ($regalos[$linea['id']] ?? [] as $regalo)
+                                    <tr class="bg-pink-50 dark:bg-pink-900/20" wire:key="regalo-{{ $linea['id'] }}-{{ $loop->index }}">
+                                        <td class="p-2 pl-6" colspan="1">
+                                            <span class="text-gray-500">↳</span>
+                                            {!! \App\Enums\LineaTipo::badge('Accesorio') !!}
+                                            <span class="text-gray-900 dark:text-gray-100">{{ $regalo['nombre'] }}</span>
+                                            <span class="block text-xs text-pink-700 dark:text-pink-300">Regalo con el equipo</span>
+                                        </td>
+                                        <td class="p-2 text-right">{{ $regalo['cantidad'] }}</td>
+                                        <td class="p-2 text-right text-gray-500">0.00</td>
+                                        <td class="p-2"></td>
+                                        <td class="p-2"></td>
+                                        <td class="p-2 text-right whitespace-nowrap">0.00</td>
+                                        <td></td>
+                                    </tr>
+                                @endforeach
+                            @endif
                         @endforeach
                         @foreach ($cobrosExistentes as $cobro)
                             <tr class="border-t border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/30" wire:key="cobro-{{ $loop->index }}">

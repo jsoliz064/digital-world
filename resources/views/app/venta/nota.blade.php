@@ -66,14 +66,14 @@
             <div class="fila chico"><span>IMEI {{ $d->producto?->imei }}</span><span>{{ $bs($d->subtotal) }}</span></div>
             @foreach ($venta->detalles->where('producto_asociado_id', $d->producto_id) as $a)
                 <div class="fila sangria chico">
-                    <span>+ {{ $a->cantidad > 1 ? $a->cantidad . ' x ' : '' }}{{ $lineaNombre($a) }}</span>
+                    <span>+ {{ $a->cantidad > 1 ? $a->cantidad . ' x ' : '' }}{{ $lineaNombre($a) }}{{ $a->esRegalo() ? ' (regalo)' : '' }}</span>
                     <span>{{ $bs($a->subtotal) }}</span>
                 </div>
             @endforeach
         @endforeach
         @foreach ($sueltos as $d)
             <div class="fila">
-                <span>{{ $d->cantidad > 1 ? $d->cantidad . ' x ' : '' }}{{ $lineaNombre($d) }}{{ $d->stockYaDescontado() ? ' (taller)' : '' }}</span>
+                <span>{{ $d->cantidad > 1 ? $d->cantidad . ' x ' : '' }}{{ $lineaNombre($d) }}{{ $d->esCobro() ? ' (taller)' : '' }}</span>
                 <span>{{ $bs($d->subtotal) }}</span>
             </div>
         @endforeach

@@ -37,6 +37,7 @@ class AuditarProductos extends Command
         $this->vendidosSinVenta();
         $this->enVentaSinEstarVendidos();
         $this->ventasSinDetalles();
+        $this->regalosVentaDescuadrados();
         $this->comprasSinDetalles();
         $this->enCompraDescuadrados();
         $this->productosSinCompra();
@@ -107,6 +108,34 @@ class AuditarProductos extends Command
             ->get();
 
         $this->reportar('Productos en una venta sin estar vendidos', $filas, ['id', 'imei', 'estado', 'venta_id']);
+    }
+
+    /**
+     * Los regalos de un equipo vendido viajan como lineas de su venta
+     * (VentaService::registrarRegalos). Descuadre: una linea de regalo sin su
+     * equipo en esa venta o distinta de su regalo (otro accesorio, otra
+     * cantidad, otro equipo), o un regalo de un equipo vendido sin su linea.
+     */
+    private function regalosVentaDescuadrados(): void
+    {
+        $lineas = DB::table('ventas_detalles as d')
+            ->leftJoin('productos_regalos as r', 'r.id', '=', 'd.producto_regalo_id')
+            ->leftJoin('ventas_detalles as e', fn($j) => $j->on('e.venta_id', '=', 'd.venta_id')->on('e.producto_id', '=', 'd.producto_asociado_id'))
+            ->whereNotNull('d.producto_regalo_id')
+            ->where(fn($q) => $q->whereNull('e.id')
+                ->orWhereColumn('r.producto_id', '!=', 'd.producto_asociado_id')
+                ->orWhereColumn('r.accesorio_id', '!=', 'd.accesorio_id')
+                ->orWhereColumn('r.cantidad', '!=', 'd.cantidad'))
+            ->select('d.venta_id', 'd.producto_asociado_id as producto_id', 'd.producto_regalo_id as regalo_id', DB::raw("'linea sin su equipo o distinta del regalo' as motivo"))
+            ->get();
+
+        $sinLinea = DB::table('productos_regalos as r')
+            ->join('ventas_detalles as e', 'e.producto_id', '=', 'r.producto_id')
+            ->whereNotExists(fn($q) => $q->select(DB::raw(1))->from('ventas_detalles as d')->whereColumn('d.producto_regalo_id', 'r.id'))
+            ->select('e.venta_id', 'r.producto_id', 'r.id as regalo_id', DB::raw("'regalo de un equipo vendido sin su linea' as motivo"))
+            ->get();
+
+        $this->reportar('Regalos de equipos vendidos descuadrados con su venta', $lineas->merge($sinLinea), ['venta_id', 'producto_id', 'regalo_id', 'motivo']);
     }
 
     /** Una cabecera sin lineas es lo que un usuario describe como "la venta no se guardo". */

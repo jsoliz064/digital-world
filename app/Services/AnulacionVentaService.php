@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ProductoEstado;
 use App\Models\Venta;
 use App\Models\VentaDetalle;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Anular una linea de venta, o la venta entera: el unico camino.
@@ -48,6 +49,13 @@ class AnulacionVentaService
      */
     public function anularLinea(VentaDetalle $linea): bool
     {
+        // El regalo viaja con su equipo: se va cuando se anula el equipo.
+        if ($linea->esRegalo()) {
+            throw ValidationException::withMessages([
+                'detalles' => 'El regalo se anula junto con su equipo.',
+            ]);
+        }
+
         $venta = $linea->venta;
 
         $this->deshacerLinea($venta, $linea);
@@ -75,7 +83,8 @@ class AnulacionVentaService
         // puede tocar mientras su cobro exista.
         $this->repuestos->cancelarCobros($venta);
 
-        $lineas = $venta->detalles()->orderByRaw('producto_id IS NULL')->orderBy('id')->get();
+        // Sin los regalos: los borra deshacerLinea() con su equipo.
+        $lineas = $venta->detalles()->whereNull('producto_regalo_id')->orderByRaw('producto_id IS NULL')->orderBy('id')->get();
 
         foreach ($lineas as $linea) {
             $this->deshacerLinea($venta, $linea);
@@ -94,9 +103,11 @@ class AnulacionVentaService
 
         if ($linea->producto_id) {
             $this->repuestos->cancelarCobros($venta, $linea->producto_id);
+            // Sus regalos se van con el (siguen asignados al equipo, sin stock que devolver).
+            VentaDetalle::borrarRegalosDe($ventaId, $linea->producto_id);
             $linea->delete();
 
-            // Sus accesorios quedan en la venta, ya sin agrupar bajo el.
+            // Sus accesorios pagados quedan en la venta, ya sin agrupar bajo el.
             VentaDetalle::where('venta_id', $ventaId)->where('producto_asociado_id', $linea->producto_id)
                 ->update(['producto_asociado_id' => null]);
 
@@ -113,7 +124,7 @@ class AnulacionVentaService
             return;
         }
 
-        if ($linea->stockYaDescontado()) {
+        if ($linea->esCobro()) {
             // Un cobro de taller: la pieza sigue montada, no hay stock que
             // devolver. cancelarCobros deja la nota en el historial del equipo.
             $this->repuestos->cancelarCobros($venta, null, $linea->id);

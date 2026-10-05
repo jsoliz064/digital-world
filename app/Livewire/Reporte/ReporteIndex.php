@@ -267,6 +267,9 @@ class ReporteIndex extends Component
     {
         return $this->porSucursal(DB::table('ventas_detalles as d')
             ->join('ventas as v', 'v.id', '=', 'd.venta_id')
+            // Un regalo no es una venta del accesorio: no suma unidades ni ranking
+            // (su dinero es 0 y su costo ya va en la linea del equipo).
+            ->whereNull('d.producto_regalo_id')
             ->whereBetween('v.created_at', [$desde, $hasta])
             ->when($tipo, fn($q) => $q->where('d.tipo', $tipo)), 'v.sucursal_id');
     }

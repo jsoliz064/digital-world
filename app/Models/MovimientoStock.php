@@ -137,6 +137,9 @@ class MovimientoStock extends Model
             // La ficha del cliente manda sobre el texto congelado.
             ->leftJoin('clientes as cl', 'v.cliente_id', '=', 'cl.id')
             ->where("d.{$col}", $id)
+            // Sin las lineas de regalo: la salida de ese stock ya la muestra la
+            // rama de regalos, y la linea de venta va a precio y costo 0.
+            ->whereNull('d.producto_regalo_id')
             ->selectRaw("
                 CONCAT('V-', d.id)                            as id,
                 'Venta'                                       as tipo,

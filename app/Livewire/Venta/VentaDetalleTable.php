@@ -30,7 +30,7 @@ class VentaDetalleTable extends DataTableComponent
         $this->setPrimaryKey('id')
             ->setSearchDisabled()
             ->setPaginationDisabled()
-            ->setAdditionalSelects(['ventas_detalles.producto_id', 'ventas_detalles.repuesto_id', 'ventas_detalles.accesorio_id', 'ventas_detalles.producto_reparacion_repuesto_id', 'ventas_detalles.producto_asociado_id']);
+            ->setAdditionalSelects(['ventas_detalles.producto_id', 'ventas_detalles.repuesto_id', 'ventas_detalles.accesorio_id', 'ventas_detalles.producto_reparacion_repuesto_id', 'ventas_detalles.producto_asociado_id', 'ventas_detalles.producto_regalo_id']);
     }
 
     public function columns(): array
@@ -42,7 +42,8 @@ class VentaDetalleTable extends DataTableComponent
             Column::make('Detalle', 'id')
                 ->format(fn($value, $row) => ($row->producto_asociado_id ? '<span class="text-gray-400">↳</span> ' : '') . e($row->descripcion())
                     . ($row->producto_asociado_id ? '<span class="block text-xs text-gray-500">Con ' . e(trim(($row->productoAsociado?->modelo?->nombre ?? 'el equipo') . ' ' . $row->productoAsociado?->almacenamiento)) . '</span>' : '')
-                    . ($row->stockYaDescontado() ? '<span class="block text-xs text-green-700">Cobro de taller (stock ya descontado en la reparación)</span>' : ''))
+                    . ($row->esRegalo() ? '<span class="block text-xs text-pink-700">Regalo con el equipo (sin cargo; el stock salió al regalarlo)</span>' : '')
+                    . ($row->esCobro() ? '<span class="block text-xs text-green-700">Cobro de taller (stock ya descontado en la reparación)</span>' : ''))
                 ->html(),
             Column::make('Cant.', 'cantidad'),
             Column::make('Precio', 'precio')

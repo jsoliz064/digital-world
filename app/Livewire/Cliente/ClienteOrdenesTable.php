@@ -139,6 +139,7 @@ class ClienteOrdenesTable extends DataTableComponent
         $contar = fn(string $tipo) => VentaDetalle::query()
             ->selectRaw('COALESCE(SUM(cantidad), 0)')
             ->whereColumn('ventas_detalles.venta_id', 'ventas.id')
+            ->whereNull('ventas_detalles.producto_regalo_id')
             ->where('ventas_detalles.tipo', $tipo);
 
         return $this->scopedQuery()->addSelect([

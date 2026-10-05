@@ -41,6 +41,10 @@ return new class extends Migration
             $table->unsignedBigInteger('repuesto_id')->nullable();
             $table->unsignedBigInteger('accesorio_id')->nullable();
             $table->unsignedBigInteger('producto_reparacion_repuesto_id')->nullable();
+            // Un accesorio REGALADO con el equipo (productos_regalos): precio 0,
+            // costo 0 (ya esta en el costo_total del equipo) y sin mover stock
+            // (salio al regalarlo). Lo escribe VentaService con el equipo.
+            $table->unsignedBigInteger('producto_regalo_id')->nullable();
             $table->string('tipo', 10)->storedAs(
                 "CASE WHEN producto_id IS NOT NULL THEN 'Producto'
                       WHEN repuesto_id IS NOT NULL THEN 'Repuesto'
@@ -50,6 +54,7 @@ return new class extends Migration
                 "CASE WHEN producto_id IS NOT NULL THEN CONCAT('P', producto_id)
                       WHEN producto_reparacion_repuesto_id IS NOT NULL THEN CONCAT('C', producto_reparacion_repuesto_id)
                       WHEN repuesto_id IS NOT NULL THEN CONCAT('R', repuesto_id)
+                      WHEN producto_regalo_id IS NOT NULL THEN CONCAT('G', producto_regalo_id)
                       ELSE CONCAT('A', accesorio_id) END"
             );
             // De donde salio el stock, congelada: anular la linea lo devuelve aqui.
@@ -77,11 +82,14 @@ return new class extends Migration
             $table->foreign('accesorio_id', 'vd_accesorio_fk')->references('id')->on('accesorios')->restrictOnDelete();
             $table->foreign('producto_reparacion_repuesto_id', 'vd_reparacion_repuesto_fk')
                 ->references('id')->on('productos_reparaciones_repuestos')->restrictOnDelete();
+            $table->foreign('producto_regalo_id', 'vd_producto_regalo_fk')
+                ->references('id')->on('productos_regalos')->restrictOnDelete();
             $table->foreign('sucursal_id', 'vd_sucursal_fk')->references('id')->on('sucursales')->nullOnDelete();
             $table->foreign('producto_asociado_id', 'vd_producto_asociado_fk')->references('id')->on('productos')->restrictOnDelete();
 
             $table->unique('producto_id', 'ventas_detalles_producto_unico');
             $table->unique('producto_reparacion_repuesto_id', 'vd_reparacion_repuesto_unico');
+            $table->unique('producto_regalo_id', 'vd_producto_regalo_unico');
             $table->unique(['venta_id', 'articulo_clave'], 'vd_venta_articulo_unico');
             $table->index('tipo', 'vd_tipo_index');
         });
@@ -91,7 +99,8 @@ return new class extends Migration
             ADD CONSTRAINT vd_producto_unidad CHECK (producto_id IS NULL OR cantidad = 1),
             ADD CONSTRAINT vd_cantidad_positiva CHECK (cantidad >= 1),
             ADD CONSTRAINT vd_cobro_es_repuesto CHECK (producto_reparacion_repuesto_id IS NULL OR repuesto_id IS NOT NULL),
-            ADD CONSTRAINT vd_asociado_es_articulo CHECK (producto_asociado_id IS NULL OR producto_id IS NULL)');
+            ADD CONSTRAINT vd_asociado_es_articulo CHECK (producto_asociado_id IS NULL OR producto_id IS NULL),
+            ADD CONSTRAINT vd_regalo_es_accesorio CHECK (producto_regalo_id IS NULL OR (accesorio_id IS NOT NULL AND producto_asociado_id IS NOT NULL))');
     }
 
     public function down(): void
