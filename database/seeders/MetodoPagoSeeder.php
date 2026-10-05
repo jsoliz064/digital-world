@@ -10,7 +10,7 @@ class MetodoPagoSeeder extends Seeder
 {
     public function run(): void
     {
-        foreach (['Efectivo', 'QR', 'Transferencia', 'Tarjeta'] as $orden => $nombre) {
+        foreach (['Efectivo', 'QR'] as $orden => $nombre) {
             MetodoPago::firstOrCreate(['nombre' => $nombre], ['orden' => $orden + 1, 'activo' => true]);
         }
 

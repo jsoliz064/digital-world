@@ -23,8 +23,6 @@ class CatalogoBaseSeeder extends Seeder
     private const IPHONE = ['128GB', '256GB', '512GB'];
     private const IPHONE_PRO = ['128GB', '256GB', '512GB', '1TB'];
     private const IPHONE_17_PRO = ['256GB', '512GB', '1TB', '2TB'];
-    private const GAMA_MEDIA = ['128GB', '256GB'];
-    private const GAMA_ALTA = ['256GB', '512GB'];
 
     public function run(): void
     {
@@ -59,37 +57,6 @@ class CatalogoBaseSeeder extends Seeder
                     'iPhone Air' => ['256GB', '512GB', '1TB'],
                     'iPhone 17 Pro' => ['256GB', '512GB', '1TB'],
                     'iPhone 17 Pro Max' => self::IPHONE_17_PRO,
-                ],
-            ],
-            'Samsung' => [
-                'Galaxy' => [
-                    'Galaxy A15' => self::GAMA_MEDIA,
-                    'Galaxy A25' => self::GAMA_MEDIA,
-                    'Galaxy A35' => self::GAMA_MEDIA,
-                    'Galaxy A55' => self::GAMA_MEDIA,
-                    'Galaxy S24' => self::GAMA_ALTA,
-                    'Galaxy S24 Ultra' => self::GAMA_ALTA,
-                    'Galaxy S25' => self::GAMA_ALTA,
-                    'Galaxy S25 Ultra' => self::GAMA_ALTA,
-                ],
-            ],
-            'Xiaomi' => [
-                'Redmi' => [
-                    'Redmi 13C' => self::GAMA_MEDIA,
-                    'Redmi Note 13' => self::GAMA_MEDIA,
-                    'Redmi Note 13 Pro' => self::GAMA_ALTA,
-                    'Redmi Note 14' => self::GAMA_MEDIA,
-                ],
-                'Poco' => [
-                    'Poco X6' => self::GAMA_ALTA,
-                ],
-            ],
-            'Motorola' => [
-                'Moto' => [
-                    'Moto G24' => self::GAMA_MEDIA,
-                    'Moto G54' => self::GAMA_MEDIA,
-                    'Moto G84' => self::GAMA_ALTA,
-                    'Motorola Edge 50' => self::GAMA_ALTA,
                 ],
             ],
         ];
