@@ -154,4 +154,5 @@
         @livewire('articulo.modals.articulo-form-modal', ['tipo' => 'Repuesto', 'conStock' => false], key('alta-repuesto'))
         @livewire('articulo.modals.articulo-form-modal', ['tipo' => 'Accesorio', 'conStock' => false], key('alta-accesorio'))
     @endcan
+    @livewire('reparacion.modals.repuestos-reparacion-modal')
 </div>

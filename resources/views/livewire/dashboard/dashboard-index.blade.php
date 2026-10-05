@@ -127,4 +127,5 @@
         </div>
 
     </div>
+    @livewire('reparacion.modals.repuestos-reparacion-modal')
 </div>

@@ -10,7 +10,7 @@ use App\Models\ProductoReparacion;
 use App\Models\Tecnicos;
 use App\Models\VentaDetalle;
 use Illuminate\Support\Facades\DB;
-use App\Traits\EligePorCodigoTrait;
+use App\Traits\RepuestosReparacionFormTrait;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use Illuminate\Support\Facades\Auth;
@@ -30,7 +30,7 @@ use App\Models\RepuestoCategoria;
  */
 class ProductoReparacionClienteModal extends Component
 {
-    use EligePorCodigoTrait;
+    use RepuestosReparacionFormTrait;
 
     use \App\Traits\PiezasCobradasTrait;
 
@@ -44,37 +44,16 @@ class ProductoReparacionClienteModal extends Component
     public $reparacion = [];
 
     public $repuestos = [];
-    /**
-     * La sucursal de donde salen las piezas de esta reparacion.
-     *
-     * La elige el tecnico y se CONGELA en cada linea
-     * (productos_reparaciones_repuestos.sucursal_id). No se deduce de
-     * $producto->sucursal_id: al terminar una reparacion el equipo se reasigna
-     * al Almacen en otra request, asi que la sucursal actual del producto no
-     * dice de donde salio la pieza. Si el stock volviera ahi, la sucursal real
-     * quedaria en negativo para siempre.
-     */
-    public $sucursalRepuestos = null;
     public $repuestosOriginales = [];
     public $repuestosEliminados = [];
 
-    public $searchRepuesto = '';
-    public $categoriaId = null;
-    public $modeloId = null;
-    public $categorias;
-    public $modelos;
-    public $filteredRepuestos = [];
 
     public $tecnico;
     public $tecnicos;
 
     public function render()
     {
-        // En render() y no en mount(): es variable de vista, asi que no viaja en
-        // el payload de Livewire y reset() no la vacia.
-        return view('livewire.producto.modals.producto-reparacion-cliente-modal', [
-            'sucursales' => \App\Models\Sucursal::activas()->orderBy('nombre')->get(),
-        ]);
+        return view('livewire.producto.modals.producto-reparacion-cliente-modal');
     }
 
     #[On('openProductoGarantiaModal')]
@@ -106,8 +85,6 @@ class ProductoReparacionClienteModal extends Component
 
         $producto = Producto::find($id);
         $this->tecnicos = Tecnicos::all();
-        $this->categorias = RepuestoCategoria::all();
-        $this->modelos = ProductoModelo::all();
         $this->producto = $producto;
         $this->openModal = true;
 
@@ -131,8 +108,6 @@ class ProductoReparacionClienteModal extends Component
         $this->repuestos = [];
         $this->repuestosOriginales = [];
         $this->repuestosEliminados = [];
-        $this->searchRepuesto = '';
-        $this->filteredRepuestos = [];
 
         if ($productoReparacion) {
             foreach ($productoReparacion->repuestos as $reparacionRepuesto) {
@@ -164,103 +139,9 @@ class ProductoReparacionClienteModal extends Component
         ];
     }
 
-    public function updatedCategoriaId()
+    protected function equipoDeLaReparacion(): ?Producto
     {
-        if ($this->categoriaId == "") {
-            $this->categoriaId = null;
-        }
-        $this->filterRepuestos($this->searchRepuesto);
-    }
-
-    public function updatedModeloId()
-    {
-        if ($this->modeloId == "") {
-            $this->modeloId = null;
-        }
-        $this->filterRepuestos($this->searchRepuesto);
-    }
-
-    public function updatedSearchRepuesto($value)
-    {
-        if (empty($value)) {
-            $this->filteredRepuestos = [];
-            return;
-        }
-
-        $this->filterRepuestos($value);
-    }
-
-    private function filterRepuestos($search)
-    {
-        $idsExistentes = collect($this->repuestos)->pluck('repuesto_id')->toArray();
-
-        // Los accesorios viven en su propia tabla: aqui solo hay piezas. El
-        // SKU y el UPC van EXACTOS, como en el buscador de la venta: es lo que
-        // lee la pistola.
-        $this->filteredRepuestos = Repuesto::query()->where(function ($query) use ($search) {
-            $query->where('nombre', 'like', '%' . $search . '%')
-                ->orWhere('sku', $search)
-                ->orWhere('upc', $search)
-                ->orWhere('fabricante', 'like', '%' . $search . '%')
-                ->orWhereHas('modelo', function ($queryModelo) use ($search) {
-                    $queryModelo->where('nombre', 'like', '%' . $search . '%');
-                });
-        })
-            ->whereNotIn('id', $idsExistentes)
-            ->when($this->categoriaId, function ($query) {
-                $query->where('repuesto_categoria_id', $this->categoriaId);
-            })
-            ->when($this->modeloId, function ($query) {
-                $query->where('producto_modelo_id', $this->modeloId);
-            })
-            ->orderBy('nombre')
-            ->take(20)
-            ->get();
-    }
-
-    /**
-     * Enter en el buscador de repuestos (pistola o camara): un SKU/UPC exacto
-     * entre los resultados lo agrega; si no, deja la lista.
-     */
-    public function elegirRepuestoPorCodigo(?string $codigo = null): void
-    {
-        $codigo = trim((string) $codigo);
-        $this->searchRepuesto = $codigo;
-        $this->updatedSearchRepuesto($codigo);
-
-        $repuesto = $this->unicoPorCodigo($this->filteredRepuestos, $codigo, ['sku', 'upc']);
-
-        if ($repuesto) {
-            $this->selectRepuesto($repuesto->id);
-
-            return;
-        }
-
-        if ($codigo !== '' && collect($this->filteredRepuestos)->isEmpty()) {
-            toastr()->warning("Ningún repuesto coincide con «{$codigo}».");
-        }
-    }
-
-    public function selectRepuesto($id)
-    {
-        $repuesto = Repuesto::find($id);
-        if (!$repuesto)
-            return;
-
-        array_unshift($this->repuestos, [
-            'id' => null,
-            'repuesto_id' => $repuesto->id,
-            'nombre' => $repuesto->nombre,
-            'modelo' => $repuesto->modelo ? $repuesto->modelo->nombre : '',
-            'fabricante' => $repuesto->fabricante,
-            'costo' => $repuesto->costo,
-            'cantidad' => 1,
-            'subtotal_costo' => $repuesto->costo,
-        ]);
-
-        $this->searchRepuesto = '';
-        $this->filteredRepuestos = [];
-        $this->calcularTotalRepuestos();
+        return $this->producto ? Producto::find($this->producto->id) : null;
     }
 
     public function updatedRepuestos()
@@ -433,7 +314,7 @@ class ProductoReparacionClienteModal extends Component
                         'producto_reparacion_id' => $productoReparacion->id,
                         'repuesto_id' => $repuestoRaparacion['repuesto_id'],
                         // Congelada: de aqui salio la pieza.
-                        'sucursal_id' => $this->sucursalRepuestos,
+                        'sucursal_id' => $this->sucursalDeLinea($repuestoRaparacion),
                         'costo' => $repuestoRaparacion['costo'],
                         'cantidad' => $repuestoRaparacion['cantidad'],
                         'subtotal_costo' => $repuestoRaparacion['subtotal_costo'],
@@ -442,7 +323,7 @@ class ProductoReparacionClienteModal extends Component
                     $stock->retirar(
                         \App\Enums\ArticuloTipo::Repuesto,
                         $repuesto->id,
-                        $this->sucursalRepuestos,
+                        $this->sucursalDeLinea($repuestoRaparacion),
                         (int) $repuestoRaparacion['cantidad'],
                     );
                 }

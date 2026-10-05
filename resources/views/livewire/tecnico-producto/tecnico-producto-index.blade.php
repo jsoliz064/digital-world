@@ -51,4 +51,5 @@
         @livewire('comision.modals.comision-liquidar-modal')
     @endcan
     @livewire('tecnico-producto.modals.tecnico-terminar-modal')
+    @livewire('reparacion.modals.repuestos-reparacion-modal')
 </div>
