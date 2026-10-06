@@ -251,3 +251,6 @@ Route::middleware([
 });
 
 Route::get('catalogo', [CatalogoController::class, 'index'])->name('catalogo');
+
+// Los terminos de garantia, publicos: a esta pagina lleva el QR de la nota.
+Route::view('garantia', 'garantia')->name('garantia');

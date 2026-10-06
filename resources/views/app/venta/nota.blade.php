@@ -30,6 +30,8 @@
         .chico { font-size: 10.5px; }
         .sangria { padding-left: 3mm; }
         .total { font-size: 15px; font-weight: bold; }
+        .qr { text-align: center; }
+        .qr svg { width: 28mm; height: 28mm; display: block; margin: 1mm auto; }
         .acciones { text-align: center; margin: 4mm 0; }
         .acciones button { font: inherit; padding: 2mm 4mm; cursor: pointer; }
         @media print { .acciones { display: none; } }
@@ -104,6 +106,16 @@
             @foreach ($garantias as $d)
                 <div class="chico">Garantía {{ $d->garantia_meses }} mes(es): {{ $lineaNombre($d) }}, hasta el {{ $d->garantia_fecha_exp?->format('d/m/Y') }}</div>
             @endforeach
+        @endif
+
+        {{-- El QR lleva a los terminos de garantia (/garantia): el vendedor le
+             pide al cliente que lo escanee. Solo con equipos, que son lo que tiene garantia. --}}
+        @if ($equipos->isNotEmpty())
+            <hr>
+            <div class="qr">
+                {!! \App\Support\QrGarantia::svg() !!}
+                <div class="chico">Escanee para ver los términos de garantía</div>
+            </div>
         @endif
 
         <hr>
