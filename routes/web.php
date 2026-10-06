@@ -225,6 +225,12 @@ Route::middleware([
             ->middleware('can:venta.detalle')
             ->name('ventas.nota');
 
+        // El recibo en PDF (carta), para compartirlo por WhatsApp.
+        Route::get('{id}/pdf', [VentaController::class, 'pdf'])
+            ->whereNumber('id')
+            ->middleware('can:venta.detalle')
+            ->name('ventas.pdf');
+
     });
 
     // El @can del blade solo oculta el enlace del menu; sin este middleware

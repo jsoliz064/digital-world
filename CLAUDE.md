@@ -276,7 +276,7 @@ Una fila de `comisiones` por venta (para su vendedor, `user_id`) o por reparaci�
 
 ### Accesorios del equipo
 
-`ventas_detalles.producto_asociado_id` agrupa un accesorio o repuesto bajo el equipo con el que se vendió (detalle y nota). `VentaService` solo lo acepta si ese equipo está en la misma venta, y quitar el equipo lo desasocia. La nota térmica es `ventas/{id}/nota` (`VentaController@nota`), HTML suelto de 80 mm que se imprime solo.
+`ventas_detalles.producto_asociado_id` agrupa un accesorio o repuesto bajo el equipo con el que se vendió (detalle y nota). `VentaService` solo lo acepta si ese equipo está en la misma venta, y quitar el equipo lo desasocia. La nota térmica es `ventas/{id}/nota` (`VentaController@nota`), HTML suelto de 80 mm que se imprime solo. El **recibo PDF** (carta) es `ventas/{id}/pdf` (dompdf, `recibo-pdf.blade.php`): **solo tablas**, dompdf no entiende flex ni grid. Los dos salen de `VentaController::cargarRecibo()`, el único agrupado de lo vendido bajo su equipo. Llevan el **QR de garantía** (`App\Support\QrGarantia`, SVG de BaconQrCode) que apunta a la página pública `/garantia`: usa `route()`, así que **`APP_URL` de producción debe ser la dirección pública**. El botón de WhatsApp del detalle (Alpine `compartirRecibo`) comparte el PDF con el menú del celular (Web Share con archivos); donde no se puede, lo descarga y abre `wa.me` con `Cliente::telefonoWhatsapp()`.
 
 ### El lector de códigos: la cámara imita a la pistola
 

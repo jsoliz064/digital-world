@@ -340,4 +340,59 @@ document.addEventListener('alpine:init', () => {
             alTomarFoto = null;
         },
     }));
+
+    // Compartir el recibo PDF de una venta (detalle de la venta). En el celular
+    // abre el menu de compartir con el PDF adjunto: el vendedor elige WhatsApp y
+    // el contacto. Donde no se pueden compartir archivos (la PC), descarga el
+    // PDF y abre WhatsApp Web con el numero del cliente, para adjuntarlo a mano.
+    window.Alpine.data('compartirRecibo', (cfg) => ({
+        generando: false,
+
+        async compartir() {
+            if (this.generando) {
+                return;
+            }
+
+            this.generando = true;
+
+            try {
+                const resp = await fetch(cfg.url, { credentials: 'same-origin' });
+
+                if (!resp.ok) {
+                    throw new Error(resp.status);
+                }
+
+                const archivo = new File([await resp.blob()], cfg.archivo, { type: 'application/pdf' });
+
+                if (navigator.canShare?.({ files: [archivo] })) {
+                    try {
+                        await navigator.share({ files: [archivo], text: cfg.texto });
+                    } catch (e) {
+                        // Cerrar el menu sin elegir no es un error.
+                        if (e?.name !== 'AbortError') {
+                            throw e;
+                        }
+                    }
+
+                    return;
+                }
+
+                const enlace = document.createElement('a');
+                enlace.href = URL.createObjectURL(archivo);
+                enlace.download = cfg.archivo;
+                document.body.appendChild(enlace);
+                enlace.click();
+                enlace.remove();
+                setTimeout(() => URL.revokeObjectURL(enlace.href), 10000);
+
+                const texto = encodeURIComponent(cfg.texto + ' (le adjunto el recibo en PDF)');
+                window.open('https://wa.me/' + (cfg.telefono || '') + '?text=' + texto, '_blank');
+            } catch {
+                const msg = 'No se pudo generar el recibo.';
+                window.toastr ? window.toastr.error(msg) : window.alert(msg);
+            } finally {
+                this.generando = false;
+            }
+        },
+    }));
 });

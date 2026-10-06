@@ -6,6 +6,23 @@
                 class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-300">
                 <i class="fa-solid fa-print mr-1"></i> Imprimir nota
             </a>
+            {{-- El recibo en PDF (carta), adjunto por el menu de compartir del celular
+                 (Alpine compartirRecibo, en app.js). --}}
+            {{-- @php en bloque: mezclar @php(...) con un @php ... @endphp mas abajo
+                 hace que Blade se trague todo lo de en medio. --}}
+            @php $numeroRecibo = str_pad($venta->id, 6, '0', STR_PAD_LEFT); @endphp
+            <button type="button"
+                x-data="compartirRecibo({
+                    url: @js(route('ventas.pdf', $venta->id)),
+                    archivo: @js('Recibo-' . $numeroRecibo . '.pdf'),
+                    telefono: @js($venta->fichaCliente?->telefonoWhatsapp()),
+                    texto: @js('Digital World - Recibo Nº ' . $numeroRecibo . '. Total Bs ' . number_format((float) $venta->total, 2, ',', '.')),
+                })"
+                x-on:click="compartir()" :disabled="generando"
+                class="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest shadow-sm hover:bg-green-700 disabled:opacity-60">
+                <i class="fa-brands fa-whatsapp mr-1 text-sm"></i>
+                <span x-text="generando ? 'Generando...' : 'WhatsApp'">WhatsApp</span>
+            </button>
             @if ($venta->aCredito())
                 @can('pago.create')
                     <x-button wire:click="cobrar">Cobrar</x-button>

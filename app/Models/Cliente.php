@@ -60,4 +60,19 @@ class Cliente extends Model
     {
         return $this->ventas()->count();
     }
+
+    /**
+     * El telefono como lo pide wa.me: solo digitos, con el 591 delante si es un
+     * celular boliviano de 8 cifras. Null si no parece un numero.
+     */
+    public function telefonoWhatsapp(): ?string
+    {
+        $digitos = preg_replace('/\D+/', '', (string) $this->telefono);
+
+        if (strlen($digitos) === 8) {
+            return '591' . $digitos;
+        }
+
+        return strlen($digitos) >= 10 && strlen($digitos) <= 15 ? $digitos : null;
+    }
 }
