@@ -183,8 +183,8 @@ class CompraLoteAddModelModal extends Component
 
     public function photoCapturedCreate($photoData)
     {
+        // Sin aviso por foto: la camara queda abierta y lleva su contador.
         $this->photos[] = $photoData;
-        $this->dispatch('notify', 'Foto agregada correctamente');
     }
 
     public function removePhoto()

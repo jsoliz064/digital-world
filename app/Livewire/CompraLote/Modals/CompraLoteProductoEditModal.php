@@ -244,8 +244,8 @@ class CompraLoteProductoEditModal extends Component
     // Photo handling methods
     public function photoCapturedEdit($photoData)
     {
+        // Sin aviso por foto: la camara queda abierta y lleva su contador.
         $this->photos[] = $photoData;
-        $this->dispatch('notify', 'Foto agregada correctamente');
     }
 
     public function removePhoto()

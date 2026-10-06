@@ -694,6 +694,7 @@
     </div>
 
     <x-escaner-overlay />
+    <x-camara-fotos />
 
     @livewireScripts
 
@@ -733,7 +734,6 @@
         };
     </script>
     @stack('js')
-    <script src="{{ asset('js/camera-handler.js') }}"></script>
 
     @if (session('swal'))
         <script>

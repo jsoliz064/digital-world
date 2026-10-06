@@ -17,6 +17,11 @@ let destino = null;
 let stream = null;
 let bucle = null;
 let audio = null;
+// El modulo de la camara (escaner.js), una vez cargado: apagar() lo necesita
+// sin esperar un import().
+let camara = null;
+// A quien se le entregan las fotos (una funcion: no va en el estado de Alpine).
+let alTomarFoto = null;
 
 document.addEventListener('alpine:init', () => {
     window.Alpine.data('escaner', () => ({
@@ -76,16 +81,16 @@ document.addEventListener('alpine:init', () => {
             }
 
             try {
-                const { crearDetector, abrirCamara, puedeLinterna } = await import('./escaner.js');
-                const [detector, s] = await Promise.all([crearDetector(), abrirCamara(this.$refs.video)]);
+                camara = await import('./escaner.js');
+                const [detector, s] = await Promise.all([camara.crearDetector(), camara.abrirCamara(this.$refs.video)]);
 
                 if (!this.abierto) {
-                    s.getTracks().forEach((t) => t.stop());
+                    camara.detenerCamara();
                     return;
                 }
 
                 stream = s;
-                this.hayLinterna = puedeLinterna(stream);
+                this.hayLinterna = camara.puedeLinterna(stream);
                 this.cargando = false;
                 this.leer(detector);
             } catch (e) {
@@ -201,6 +206,9 @@ document.addEventListener('alpine:init', () => {
             bucle = null;
             stream?.getTracks().forEach((t) => t.stop());
             stream = null;
+            // Tambien el stream que abrirCamara() entrego y nunca llego a
+            // `stream` (el detector fallo a medio abrir).
+            camara?.detenerCamara();
 
             if (this.$refs.video) {
                 this.$refs.video.srcObject = null;
@@ -215,6 +223,121 @@ document.addEventListener('alpine:init', () => {
             this.abierto = false;
             this.cargando = false;
             destino = null;
+        },
+    }));
+
+    // La camara de fotos del equipo (components/camara-fotos), una sola en el
+    // layout como el lector. La abre cualquier boton con:
+    //
+    //   $dispatch('abrir-camara-fotos', { alTomar: (foto) => $wire.metodo(foto) })
+    //
+    // Queda abierta para sacar varias: cada disparo entrega un JPEG en base64 a
+    // `alTomar`. Antes vivia dentro de cada modal de Livewire, y cada respuesta
+    // del servidor le devolvia su class="hidden": por eso se cerraba tras cada
+    // foto.
+    window.Alpine.data('camaraFotos', () => ({
+        abierto: false,
+        cargando: false,
+        error: '',
+        tomadas: 0,
+        ultima: '',
+        destello: false,
+
+        init() {
+            window.addEventListener('keydown', (e) => {
+                if (this.abierto && e.key === 'Escape') {
+                    e.stopImmediatePropagation();
+                    this.cerrar();
+                }
+            }, true);
+
+            document.addEventListener('visibilitychange', () => document.hidden && this.cerrar());
+            window.addEventListener('pagehide', () => this.cerrar());
+            document.addEventListener('livewire:navigating', () => this.cerrar());
+        },
+
+        async abrir(detalle) {
+            if (typeof detalle?.alTomar !== 'function') {
+                return;
+            }
+
+            this.cerrar();
+            alTomarFoto = detalle.alTomar;
+            this.error = '';
+            this.tomadas = 0;
+            this.ultima = '';
+            this.abierto = true;
+
+            if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+                this.error = 'La cámara solo funciona con HTTPS.';
+                return;
+            }
+
+            this.cargando = true;
+
+            try {
+                camara = await import('./escaner.js');
+                await camara.abrirCamara(this.$refs.video);
+
+                if (!this.abierto) {
+                    camara.detenerCamara();
+                    return;
+                }
+
+                this.cargando = false;
+            } catch (e) {
+                this.cargando = false;
+                this.error = e?.name === 'NotAllowedError'
+                    ? 'No hay permiso para usar la cámara. Habilítelo en el navegador.'
+                    : e?.name === 'NotFoundError'
+                        ? 'Este dispositivo no tiene cámara.'
+                        : 'No se pudo abrir la cámara.';
+                camara?.detenerCamara();
+            }
+        },
+
+        disparar() {
+            const video = this.$refs.video;
+
+            if (this.cargando || this.error || !video?.videoWidth || !alTomarFoto) {
+                return;
+            }
+
+            // Lado mayor a 1280 px como mucho: cada foto viaja en el estado de
+            // Livewire, y una de 4000 px inflaba cada peticion del modal.
+            const escala = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+            const canvas = this.$refs.canvas;
+            canvas.width = Math.round(video.videoWidth * escala);
+            canvas.height = Math.round(video.videoHeight * escala);
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const foto = canvas.toDataURL('image/jpeg', 0.85);
+            this.ultima = foto;
+            this.tomadas++;
+            this.destello = true;
+            setTimeout(() => (this.destello = false), 150);
+
+            try {
+                navigator.vibrate?.(40);
+            } catch {
+                // sin vibracion
+            }
+
+            alTomarFoto(foto);
+        },
+
+        cerrar() {
+            if (this.abierto) {
+                camara?.detenerCamara();
+            }
+
+            if (this.$refs.video) {
+                this.$refs.video.srcObject = null;
+            }
+
+            this.abierto = false;
+            this.cargando = false;
+            alTomarFoto = null;
         },
     }));
 });

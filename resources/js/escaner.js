@@ -14,6 +14,17 @@ const FORMATOS = [
 
 let detector = null;
 
+// La UNICA camara encendida de la pagina. La usan el lector y la camara de
+// fotos (components/camara-fotos), y abrir una apaga la anterior: antes cada
+// una manejaba su stream, y uno perdido (el lector que fallaba a medio abrir)
+// dejaba la camara tomada y las fotos en pantalla negra.
+let activo = null;
+
+export function detenerCamara() {
+    activo?.getTracks().forEach((t) => t.stop());
+    activo = null;
+}
+
 export async function crearDetector() {
     if (detector) {
         return detector;
@@ -50,6 +61,8 @@ export async function crearDetector() {
 }
 
 export async function abrirCamara(video) {
+    detenerCamara();
+
     const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -59,6 +72,10 @@ export async function abrirCamara(video) {
         },
     });
 
+    // Se registra antes del play(): si el play() falla, la camara no queda
+    // encendida sin dueno. El play() explicito es lo que evita la pantalla
+    // negra: el autoplay solo no siempre arranca.
+    activo = stream;
     video.srcObject = stream;
     await video.play();
 

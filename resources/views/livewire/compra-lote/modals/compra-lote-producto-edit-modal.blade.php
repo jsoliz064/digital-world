@@ -255,7 +255,7 @@
                         <div class="animate-fade-in">
                             <x-label value="Fotos del Producto" />
                             <div class="mt-2">
-                                <button type="button" onclick="CameraHandler.initCamera('cameraModalEdit')"
+                                <button type="button" x-on:click="$dispatch('abrir-camara-fotos', { alTomar: (foto) => $wire.photoCapturedEdit(foto) })"
                                     class="w-full flex items-center justify-center px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-md 
                                        transition-all duration-300 hover:scale-105 shadow-md">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none"
@@ -270,6 +270,9 @@
 
                                 @if (count($photos) > 0)
                                     <div class="animate-fade-in mt-4" x-data="photoCarousel()"
+                                            {{-- La clave cambia con cada foto: Alpine no relee el x-init, y sin
+                                                 esto el carrusel se quedaba con la primera. --}}
+                                            wire:key="carrusel-{{ count($photos) }}"
                                         x-init="init({{ json_encode($photos) }})">
                                         <x-label x-text="`Fotos del Producto (${photos.length})`" />
 
@@ -395,26 +398,6 @@
             </x-slot>
 
         </x-dialog-modal>
-
-        <div id="cameraModalEdit" class="hidden fixed inset-0 z-[999999] bg-black w-screen h-screen">
-            <div class="absolute top-0 left-0 w-full h-full flex flex-col">
-                <button onclick="CameraHandler.closeCamera('cameraModalEdit')"
-                    class="absolute top-4 right-4 bg-black bg-opacity-50 text-white rounded-full p-2 z-10">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-
-                <div class="flex-grow relative" onclick="handleTapEdit(event, 'cameraModalEdit')">
-                    <video id="cameraModalEdit-video" autoplay playsinline muted
-                        class="w-full h-full object-cover"></video>
-                    <canvas id="cameraModalEdit-canvas" class="hidden"></canvas>
-                </div>
-            </div>
-        </div>
-
     @endif
 
     @push('js')
@@ -459,24 +442,9 @@
                 }));
             });
         </script>
-        <script>
-            function handleTapEdit(event, modalId) {
-                CameraHandler.handleDoubleTap(event, modalId, (photo) => {
-                    @this.call('photoCapturedEdit', photo);
-                });
-            }
-        </script>
     @endpush
 
 
-    @push('css')
-        <style>
-            #videoElement {
-                background: transparent !important;
-                object-fit: cover;
-            }
-        </style>
-    @endpush
 
 
 </div>
