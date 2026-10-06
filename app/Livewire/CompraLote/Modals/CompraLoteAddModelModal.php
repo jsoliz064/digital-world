@@ -42,7 +42,6 @@ class CompraLoteAddModelModal extends Component
     public $upc;
     public $bateria_porcentaje = 0;
     public $disponible_catalogo = false;
-    public $sin_reparacion = false;
     public $sucursal_id;
 
     public $costo_unidad = 0;
@@ -104,7 +103,6 @@ class CompraLoteAddModelModal extends Component
             'precio_vendedor' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
             'descripcion' => 'nullable|string',
             'disponible_catalogo' => 'required',
-            'sin_reparacion' => 'required',
             'estado_grado' => ['required', Rule::in(ProductoGrado::values())],
             'tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
             // Al dar de alta no se puede elegir Vendido ni Credito: los escribe una venta.
@@ -356,7 +354,6 @@ class CompraLoteAddModelModal extends Component
                     'detalles' => $this->detallesText,
                     'estado_grado' => $this->estado_grado,
                     'disponible_catalogo' => $this->disponible_catalogo,
-                    'sin_reparacion' => $this->sin_reparacion,
                     'sucursal_id' => $this->sucursal_id,
                 ], $this->photos);
 

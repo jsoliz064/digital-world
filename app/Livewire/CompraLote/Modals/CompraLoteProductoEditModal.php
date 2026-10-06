@@ -63,7 +63,6 @@ class CompraLoteProductoEditModal extends Component
             ? ($producto->compraDetalle?->estado_destino ?? ProductoEstado::Inventario->value)
             : $producto->estado;
         $this->producto['disponible_catalogo'] = (bool)$producto->disponible_catalogo;
-        $this->producto['sin_reparacion'] = (bool)$producto->sin_reparacion;
         // Recibido en permuta: su costo ES el pago de la venta y no se edita aqui.
         $this->producto['es_permuta'] = $producto->permuta()->exists();
 
@@ -132,7 +131,6 @@ class CompraLoteProductoEditModal extends Component
                 Rule::unique('productos', 'imei')->ignore($this->producto['id'] ?? null),
             ],
             'producto.disponible_catalogo' => 'required',
-            'producto.sin_reparacion' => 'required',
             'producto.sucursal_id' => 'required',
             'producto.estado_grado' => ['required', Rule::in(ProductoGrado::values())],
         ], [
@@ -174,7 +172,6 @@ class CompraLoteProductoEditModal extends Component
                 'estado_grado' => $this->producto['estado_grado'],
                 'producto_modelo_id' => $this->selectedModel['id'],
                 'disponible_catalogo' => $this->producto['disponible_catalogo'],
-                'sin_reparacion' => $this->producto['sin_reparacion'],
                 'sucursal_id' => $this->producto['sucursal_id'],
             ]);
 

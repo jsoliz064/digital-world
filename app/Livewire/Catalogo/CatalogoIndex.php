@@ -23,13 +23,11 @@ class CatalogoIndex extends Component
     public $models = [];
     public $availableModels = 0;
     public $soldOutModels = 0;
-    public $reparacionModels = 0;
     public $minPriceLimit = 0;
     public $maxPriceLimit = 0;
     public $priceAuth = 'precio_cliente';
 
     public $storageOptionsByModel = [];
-    public $showReparacion = false;
 
     protected $queryString = [
         'search' => ['except' => ''],
@@ -66,13 +64,8 @@ class CatalogoIndex extends Component
             ->where('producto_modelo_id', $modelId)
             ->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
             ->where(function ($q) {
-                if ($this->showReparacion) {
-                    $q->where('sin_reparacion', true)
-                        ->orWhere('estado', ProductoEstado::Reparacion->value);
-                } else {
-                    $q->where('disponible_catalogo', true)
-                        ->orWhereIn('estado', ProductoEstado::disponibles());
-                }
+                $q->where('disponible_catalogo', true)
+                    ->orWhereIn('estado', ProductoEstado::disponibles());
             });
 
         $this->storageOptionsByModel = $query
@@ -134,9 +127,8 @@ class CatalogoIndex extends Component
         $this->resetPage();
     }
 
-    public function selectModel($modelId, $isReparacion = false)
+    public function selectModel($modelId)
     {
-        $this->showReparacion = $isReparacion;
         $this->filterModel = $modelId;
         $this->loadStorageOptions($modelId);
         $this->reset('filterStorage');
@@ -153,30 +145,17 @@ class CatalogoIndex extends Component
                             ->orWhereIn('estado', ProductoEstado::disponibles());
                     });
             },
-            'productos as productos_reparacion_count' => function ($query) {
-                $query->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
-                    ->where(function ($q) {
-                        $q->where('sin_reparacion', 1)
-                            ->orWhere('estado', ProductoEstado::Reparacion->value);
-                    });
-            }
         ])->get();
 
         $this->availableModels = $this->models->where('productos_disponibles_count', '>', 0);
         $this->soldOutModels = $this->models->where('productos_disponibles_count', 0);
-        $this->reparacionModels = $this->models->where('productos_reparacion_count', '>', 0);
 
         $query = Producto::query()
             ->with(['imagenes', 'modelo'])
             ->whereNotIn('productos.estado', ProductoEstado::fueraDeCatalogo())->whereNull('productos.dado_de_baja_at')
             ->where(function ($q) {
-                if ($this->showReparacion) {
-                    $q->where('sin_reparacion', 1)
-                        ->orWhere('estado', ProductoEstado::Reparacion->value);
-                } else {
-                    $q->where('disponible_catalogo', 1)
-                        ->orWhereIn('estado', ProductoEstado::disponibles());
-                }
+                $q->where('disponible_catalogo', 1)
+                    ->orWhereIn('estado', ProductoEstado::disponibles());
             });
         $filtersActive = $this->search || $this->filterModel;
 
@@ -214,7 +193,6 @@ class CatalogoIndex extends Component
             'storageOptions' => ProductoAlmacenamiento::cases(),
             'filtersActive' => $filtersActive,
             'storageOptionsByModel' => $this->storageOptionsByModel,
-            // 'reparacionModels' => $this->models->where('productos_reparacion_count', '>', 0),
         ]);
     }
 }

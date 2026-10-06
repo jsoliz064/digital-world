@@ -201,7 +201,7 @@
                 <div
                     class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-10 gap-1.5">
                     @foreach ($availableModels as $model)
-                        <button wire:click="selectModel('{{ $model->id }}', false)"
+                        <button wire:click="selectModel('{{ $model->id }}')"
                             class="relative rounded-lg p-1 shadow-sm border 
                           bg-white dark:bg-gray-800
                           border-gray-200 dark:border-gray-700
@@ -259,53 +259,6 @@
                     @endforeach
                 </div>
             </div>
-            <!-- Products in Repair Section -->
-            @if ($reparacionModels->count() > 0)
-                <div class="mt-8 mb-6">
-                    <h2 class=" text-xl font-bold text-gray-800 dark:text-gray-200">
-                        Para Reparación
-                    </h2>
-
-
-                    <div
-                        class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-10 gap-1.5">
-                        @foreach ($reparacionModels as $model)
-                            <button wire:click="selectModel('{{ $model->id }}', true)"
-                                class="relative rounded-lg p-1 shadow-sm border 
-                               bg-orange-50 dark:bg-orange-900/20
-                               border-orange-200 dark:border-orange-700
-                               hover:border-orange-400 dark:hover:border-orange-500
-                               hover:shadow-md hover:scale-[1.03] 
-                               transition-all duration-200 ease-out cursor-pointer
-                               group">
-                                <div class="text-center">
-                                    <span
-                                        class="text-[0.65rem] font-medium 
-                                  text-orange-700 dark:text-orange-300
-                                  group-hover:text-orange-600 dark:group-hover:text-orange-400
-                                  transition-colors duration-200">
-                                        {{ $model->nombre }}
-                                    </span>
-
-                                    <!-- Product count badge -->
-                                    <div class="mt-1">
-                                        <span
-                                            class="inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-medium rounded-full
-                                      bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
-                                            {{ $model->productos_reparacion_count }}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div
-                                    class="absolute bottom-0 left-0 right-0 h-0.5 mx-auto w-8 bg-orange-100 dark:bg-orange-900/30 rounded-b-lg">
-                                </div>
-                            </button>
-                        @endforeach
-                    </div>
-                </div>
-            @endif
-
             @if ($filterModel && count($storageOptionsByModel) > 0)
                 <div class="mb-6 mt-8">
                     <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-1.5">
