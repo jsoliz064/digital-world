@@ -38,7 +38,6 @@ composer dev          # serve + pail + vite, todo junto
 npm run dev           # solo Vite (necesario: sin public/build toda ruta da 500 por @vite)
 npm run build
 php artisan migrate --force
-php artisan migrate:fresh --seed --force   # SOLO mientras la base siga vacía (ver abajo)
 php artisan tinker --execute='...'
 php artisan productos:auditar         # detector de deriva, SOLO LECTURA (ver abajo)
 php -l archivo.php                    # lint tras editar
@@ -46,7 +45,7 @@ php -l archivo.php                    # lint tras editar
 
 Docker (`docker-compose.yml`) es el despliegue: un solo contenedor `digital-world` (php-fpm). No hay worker de colas: el bot de WhatsApp, que era su único uso, se retiró (docs/10), y `QUEUE_CONNECTION=sync`. El `README.md` solo documenta el arranque con Docker.
 
-**Las migraciones están aplanadas** (`0001_*` y `2026_10_04_*`, una por tabla) y la base todavía no tiene datos del negocio: un cambio de esquema se hace **editando la migración inicial de esa tabla** y corriendo `migrate:fresh --seed`, no con una migración de parche. El día que haya datos reales, esto se acaba. Los seeders dejan `admin@gmail.com` / `1234` con todos los permisos, la sucursal Almacén, el catálogo base de marcas y modelos y las categorías de accesorio.
+**El sistema está en producción, con datos reales** (desde el 2026-10-06). Las migraciones iniciales están aplanadas (`0001_*` y `2026_10_04_*`, una por tabla) y **ya no se editan**: un cambio de esquema va en **una migración nueva** (`php artisan migrate --force`), con su `down()`. Nunca `migrate:fresh`, ni en local: la base de trabajo también tiene datos de prueba del usuario. Los seeders dejan `admin@gmail.com` / `1234` con todos los permisos, la sucursal Almacén, el catálogo base de marcas y modelos y las categorías de accesorio.
 
 ---
 
@@ -357,7 +356,7 @@ $this->dispatch('filtersUpdated', [...]);          // Index -> Table
 - **Un modal que regenera campos deja ese cambio en la bitácora.** `CompraLoteProductoEditModal` reescribe la `descripcion` ante cualquier cambio: no es ruido, la base cambió de verdad.
 - **Tailwind no tiene safelist.** Una clase compuesta (`'bg-' . $color`) nunca se genera. Clases literales en cada rama (`ProductoTipoVenta::badgeClasses()`, `LineaTipo::badgeClasses()`), o `style` inline (`ProductoEstado::color()`, `Tecnicos::getDivColor()`).
 - **`@can` en el blade solo esconde el botón.** La ruta lleva su `->middleware('can:...')` (las de `{id}` además `whereNumber('id')`) y el componente su `abort_unless()`. Las únicas rutas abiertas son `/`, `/dashboard` y el catálogo público. Permisos de spatie, `modulo.accion`; `PermissionSeeder` le da todos al Administrador.
-- **El selector de estado filtra por permiso** (`producto.estado.<estado>` en minúscula) y quita los de `soloPorDocumento()`. Un estado nuevo necesita su permiso, su caso en el enum y `migrate:fresh` (el enum alimenta el DDL de la columna).
+- **El selector de estado filtra por permiso** (`producto.estado.<estado>` en minúscula) y quita los de `soloPorDocumento()`. Un estado nuevo necesita su permiso, su caso en el enum y una migración que altere el enum de la columna (el DDL no se actualiza solo).
 - **MySQL corta los identificadores a 64 caracteres** y su DDL **no es transaccional**. Nombra explícitamente índices, FK y `CHECK` (la convención del repo: `vd_*`, `cd_*`, `sb_*`, `prr_*`).
 - **La lógica compartida vive en `app/Traits/`** (`CarritoBuscadorTrait`, `ArticuloStockSucursalTrait`, `PiezasCobradasTrait`, `ArticuloDeStockTrait`, `RepuestosReparacionFormTrait`), no en una copia más. Las piezas de una reparación se eligen en `RepuestosReparacionModal`, que responde con `repuestosReparacionElegidos(origen, …)`: los tres modales de reparación están montados a la vez en Productos, y solo el que lo abrió (`origen` = su `getId()`) toma la respuesta. Cada línea nueva lleva su propia `sucursal_id`. El fallo recurrente del repo heredado fue la copia que divergió.
 - Los `tipo` y `tipo_venta` de las líneas de venta y compra son **históricos a propósito**: guardan lo que el artículo era al operar, para que reclasificarlo no reescriba un período cerrado.
