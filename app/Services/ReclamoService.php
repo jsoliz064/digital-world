@@ -161,6 +161,10 @@ class ReclamoService
             'estado_grado' => $fallado->estado_grado,
             'tipo_venta' => $fallado->tipo_venta,
             'costo_unidad' => (float) $fallado->costo_unidad,
+            // El mismo costo y en la misma moneda que el fallado.
+            'costo_moneda' => $fallado->costo_moneda,
+            'costo_moneda_monto' => $fallado->costo_moneda_monto,
+            'costo_tipo_cambio' => $fallado->costo_tipo_cambio,
             'precio_cliente' => (float) $fallado->precio_cliente,
             'precio_vendedor' => (float) $fallado->precio_vendedor,
             'disponible_catalogo' => (bool) $fallado->disponible_catalogo,
@@ -179,7 +183,9 @@ class ReclamoService
         $producto = Producto::whereKey($fallado->id)->lockForUpdate()->firstOrFail();
 
         $producto->anotar('editado', "Devuelto al proveedor (compra #{$compra->id}): {$detalle}. Su costo pasa a 0.", ['compra_id' => $compra->id]);
-        $producto->update(['costo_unidad' => 0]);
+        // En BOB: si quedara en USD, Producto volveria a calcular el costo
+        // desde los dolares y el devuelto recuperaria su costo.
+        $producto->update(['costo_unidad' => 0, 'costo_moneda' => \App\Enums\Moneda::BOB->value]);
         $producto->recalcularCosto();
         // La linea de compra y el total siguen al costo (con el control de que
         // el total no quede por debajo de lo ya pagado).

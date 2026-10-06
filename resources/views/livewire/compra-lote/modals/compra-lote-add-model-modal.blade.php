@@ -66,12 +66,10 @@
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
-                            <div>
-                                <x-label for="costo_unidad" value="Costo (Bs) *" />
-                                <x-input wire:model.lazy="costo_unidad" id="costo_unidad" type="number" step="0.01"
-                                    class="mt-2 block w-full h-10" onfocus="this.select()" placeholder="0.00" />
-                                <x-input-error for="costo_unidad" class="mt-1" />
-                            </div>
+                            @include('livewire.compra-lote.partials.costo-moneda', [
+                                'mMoneda' => 'costo_moneda', 'mUsd' => 'costo_usd', 'mTc' => 'tipo_cambio', 'mBs' => 'costo_unidad',
+                                'moneda' => $costo_moneda, 'costoBs' => $costo_unidad, 'bloqueado' => false,
+                            ])
                             <div>
                                 <x-label for="sku" value="SKU (opcional)" />
                                 <div class="mt-2 flex gap-2" data-escaner>

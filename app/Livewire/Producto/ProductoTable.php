@@ -49,6 +49,9 @@ class ProductoTable extends DataTableComponent
         $this->setAdditionalSelects([
             'productos.costo_unidad',
             'productos.costo_regalos',
+            'productos.costo_moneda',
+            'productos.costo_moneda_monto',
+            'productos.costo_tipo_cambio',
             'productos.tipo_venta',
             'productos.dado_de_baja_at',
             'productos.motivo_baja',
@@ -138,7 +141,10 @@ class ProductoTable extends DataTableComponent
                 })
                 ->collapseOnTablet(),
             Column::make("Costo U.+Regalos")
-                ->label(fn($row) => $bs((float) $row->costo_unidad + (float) $row->costo_regalos))
+                ->label(fn($row) => $bs((float) $row->costo_unidad + (float) $row->costo_regalos)
+                    . ($row->costo_moneda === \App\Enums\Moneda::USD->value
+                        ? '<span class="block text-xs text-gray-500">' . e($row->costoEnMoneda()) . '</span>' : ''))
+                ->html()
                 ->collapseOnTablet(),
             Column::make("Costo Total", "costo_total")
                 ->sortable()

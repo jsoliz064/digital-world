@@ -61,16 +61,13 @@
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
                             <div>
-                                <x-label value="Costo (Bs) *" />
-                                <x-input wire:model.lazy="producto.costo_unidad" type="number" step="0.01"
-                                    class="mt-2 block w-full h-10 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200
-                                       focus:border-brand-500 focus:ring-brand-500"
-                                    :disabled="$producto['es_permuta'] ?? false"
-                                    onfocus="this.select()" placeholder="0.00" />
+                                @include('livewire.compra-lote.partials.costo-moneda', [
+                                    'mMoneda' => 'producto.costo_moneda', 'mUsd' => 'producto.costo_moneda_monto', 'mTc' => 'producto.costo_tipo_cambio', 'mBs' => 'producto.costo_unidad',
+                                    'moneda' => $producto['costo_moneda'] ?? 'BOB', 'costoBs' => $producto['costo_unidad'] ?? 0, 'bloqueado' => $producto['es_permuta'] ?? false,
+                                ])
                                 @if ($producto['es_permuta'] ?? false)
                                     <p class="mt-1 text-xs text-gray-500">Recibido en permuta: su costo es el valor reconocido en la venta y no se cambia aquí.</p>
                                 @endif
-                                <x-input-error for="producto.costo_unidad" class="mt-1" />
                             </div>
 
                             <div>

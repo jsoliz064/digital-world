@@ -30,7 +30,8 @@ class CompraLoteTable extends DataTableComponent
     {
         $this->setPrimaryKey('id')
             ->setSearchPlaceholder('Buscar por modelo, IMEI, SKU o código de barras...');
-        $this->setAdditionalSelects(['productos.dado_de_baja_at', 'productos.motivo_baja']);
+        $this->setAdditionalSelects(['productos.dado_de_baja_at', 'productos.motivo_baja',
+            'productos.costo_unidad', 'productos.costo_moneda', 'productos.costo_moneda_monto', 'productos.costo_tipo_cambio']);
     }
 
     public function filters(): array
@@ -124,9 +125,13 @@ class CompraLoteTable extends DataTableComponent
             Column::make("Grado", "estado_grado")
                 ->sortable()
                 ->format(fn($value) => \App\Enums\ProductoGrado::labelDe($value)),
+            // En Bs; si se compro en dolares, debajo los USD y su tipo de cambio.
             Column::make("Costo", "costo_total")
                 ->sortable()
-                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
+                ->format(fn($value, $row) => 'Bs ' . number_format((float) $value, 2)
+                    . ($row->costo_moneda === \App\Enums\Moneda::USD->value
+                        ? '<span class="block text-xs text-gray-500">' . e($row->costoEnMoneda()) . '</span>' : ''))
+                ->html(),
             Column::make("Precio V.", "precio_vendedor")
                 ->sortable()
                 ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),

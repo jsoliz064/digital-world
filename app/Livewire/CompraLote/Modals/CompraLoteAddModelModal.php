@@ -2,12 +2,14 @@
 
 namespace App\Livewire\CompraLote\Modals;
 
+use App\Enums\Moneda;
 use App\Enums\ProductoColor;
 use App\Enums\ProductoEstado;
 use App\Enums\ProductoGrado;
 use App\Enums\ProductoTipoVenta;
 use App\Models\Bitacora;
 use App\Models\Compra;
+use App\Models\Producto;
 use App\Models\ProductoModelo;
 use App\Models\ProductoModeloAlmacenamiento;
 use App\Models\ProductoReparacion;
@@ -44,7 +46,11 @@ class CompraLoteAddModelModal extends Component
     public $disponible_catalogo = false;
     public $sucursal_id;
 
+    /** El costo en Bs: el que se guarda. En USD lo calcula sincronizarCostoBs(). */
     public $costo_unidad = 0;
+    public $costo_moneda = 'BOB';
+    public $costo_usd = 0;
+    public $tipo_cambio;
 
     public $precio_cliente = 0;
     public $precio_vendedor = 0;
@@ -99,6 +105,9 @@ class CompraLoteAddModelModal extends Component
             'upc' => 'nullable|string|max:50',
             'bateria_porcentaje' => 'required|numeric|min:1|max:100',
             'costo_unidad' => 'required|numeric|min:0|decimal:0,2',
+            'costo_moneda' => ['required', Rule::in(Moneda::values())],
+            'costo_usd' => $this->costo_moneda === Moneda::USD->value ? 'required|numeric|gt:0|decimal:0,2' : 'nullable',
+            'tipo_cambio' => $this->costo_moneda === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
             'precio_cliente' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
             'precio_vendedor' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
             'descripcion' => 'nullable|string',
@@ -138,6 +147,8 @@ class CompraLoteAddModelModal extends Component
             'imei' => 'IMEI',
             'bateria_porcentaje' => 'porcentaje de batería',
             'costo_unidad' => 'costo',
+            'costo_usd' => 'costo en USD',
+            'tipo_cambio' => 'tipo de cambio',
             'precio_cliente' => 'precio al cliente',
             'precio_vendedor' => 'precio al vendedor',
             'estado_grado' => 'grado',
@@ -240,7 +251,8 @@ class CompraLoteAddModelModal extends Component
             return;
         }
 
-        if ((float) $ref->costo > 0) {
+        // El de referencia esta en Bs: en USD no se toca.
+        if ((float) $ref->costo > 0 && $this->costo_moneda === Moneda::BOB->value) {
             $this->costo_unidad = $ref->costo;
         }
         if ((float) $ref->precio > 0) {
@@ -270,6 +282,10 @@ class CompraLoteAddModelModal extends Component
         }
 
         $this->costo_unidad = $ultimo?->costo_unidad ?? 0;
+        // En un lote en dolares se repiten la moneda y el tipo de cambio.
+        $this->costo_moneda = $ultimo?->costo_moneda ?? Moneda::BOB->value;
+        $this->costo_usd = $ultimo?->costo_moneda_monto ?? 0;
+        $this->tipo_cambio = $ultimo?->costo_tipo_cambio ? (float) $ultimo->costo_tipo_cambio : Producto::tipoCambioSugerido();
         $this->precio_cliente = $ultimo?->precio_cliente ?? 0;
         $this->precio_vendedor = $ultimo?->precio_vendedor ?? 0;
         $this->detallesSeleccionados = [];
@@ -305,6 +321,22 @@ class CompraLoteAddModelModal extends Component
         if (in_array($propertyName, ['almacenamiento', 'color', 'imei', 'bateria_porcentaje'])) {
             $this->generateDescription();
         }
+
+        if (in_array($propertyName, ['costo_moneda', 'costo_usd', 'tipo_cambio'])) {
+            $this->sincronizarCostoBs();
+        }
+    }
+
+    /**
+     * En USD, el costo en Bs = USD x TC. Se calcula aqui para mostrarlo y para
+     * que la regla «el precio no baja del costo» compare en Bs; el que se guarda
+     * lo vuelve a calcular Producto al guardar.
+     */
+    private function sincronizarCostoBs(): void
+    {
+        if ($this->costo_moneda === Moneda::USD->value && is_numeric($this->costo_usd) && is_numeric($this->tipo_cambio)) {
+            $this->costo_unidad = round((float) $this->costo_usd * (float) $this->tipo_cambio, 2);
+        }
     }
 
     protected function generateDescription()
@@ -326,6 +358,7 @@ class CompraLoteAddModelModal extends Component
         $this->imei = trim((string) $this->imei);
         $this->sku = NormalizaCodigosTrait::normalizarCodigo($this->sku);
         $this->upc = NormalizaCodigosTrait::normalizarCodigo($this->upc);
+        $this->sincronizarCostoBs();
         $this->validate();
 
         // La clave natural del alta es el IMEI (productos_imei_unico): un
@@ -344,6 +377,9 @@ class CompraLoteAddModelModal extends Component
                     'upc' => $this->upc,
                     'bateria_porcentaje' => $this->bateria_porcentaje,
                     'costo_unidad' => $this->costo_unidad,
+                    'costo_moneda' => $this->costo_moneda,
+                    'costo_moneda_monto' => $this->costo_moneda === Moneda::USD->value ? $this->costo_usd : null,
+                    'costo_tipo_cambio' => $this->costo_moneda === Moneda::USD->value ? $this->tipo_cambio : null,
                     'precio_cliente' => $this->precio_cliente,
                     'precio_cliente_ant' => 0,
                     'precio_vendedor' => $this->precio_vendedor,

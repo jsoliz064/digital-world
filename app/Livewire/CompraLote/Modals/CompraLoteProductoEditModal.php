@@ -2,6 +2,7 @@
 
 namespace App\Livewire\CompraLote\Modals;
 
+use App\Enums\Moneda;
 use App\Enums\ProductoColor;
 use App\Enums\ProductoEstado;
 use App\Enums\ProductoGrado;
@@ -79,9 +80,33 @@ class CompraLoteProductoEditModal extends Component
         $this->openModal = true;
     }
 
-    public function updatedProducto()
+    public function updatedProducto($value = null, $key = null)
     {
         $this->generateDescription();
+
+        if ($key === 'costo_moneda' && $value === Moneda::USD->value) {
+            // Pasar a USD propone el tipo de cambio y los dolares del costo actual.
+            $tc = (float) ($this->producto['costo_tipo_cambio'] ?? 0) ?: Producto::tipoCambioSugerido();
+            $this->producto['costo_tipo_cambio'] = $tc;
+            if (!(float) ($this->producto['costo_moneda_monto'] ?? 0)) {
+                $this->producto['costo_moneda_monto'] = round((float) $this->producto['costo_unidad'] / $tc, 2);
+            }
+        }
+
+        if (in_array($key, ['costo_moneda', 'costo_moneda_monto', 'costo_tipo_cambio'], true)) {
+            $this->sincronizarCostoBs();
+        }
+    }
+
+    /** En USD, el costo en Bs = USD x TC (para mostrarlo; Producto lo recalcula al guardar). */
+    private function sincronizarCostoBs(): void
+    {
+        $usd = $this->producto['costo_moneda_monto'] ?? null;
+        $tc = $this->producto['costo_tipo_cambio'] ?? null;
+
+        if (($this->producto['costo_moneda'] ?? null) === Moneda::USD->value && is_numeric($usd) && is_numeric($tc)) {
+            $this->producto['costo_unidad'] = round((float) $usd * (float) $tc, 2);
+        }
     }
 
     protected function generateDescription()
@@ -104,6 +129,7 @@ class CompraLoteProductoEditModal extends Component
         // errores por campo en un unico addError('general'). El usuario veia
         // "Error: The given data was invalid" sin saber que campo arreglar.
         $this->producto['sku'] = NormalizaCodigosTrait::normalizarCodigo($this->producto['sku'] ?? null);
+        $this->sincronizarCostoBs();
 
         $this->validate([
             'producto.almacenamiento' => 'required',
@@ -111,6 +137,9 @@ class CompraLoteProductoEditModal extends Component
             'producto.version' => 'nullable',
             'producto.bateria_porcentaje' => 'required|numeric|min:0|max:100',
             'producto.costo_unidad' => 'required|numeric|min:0',
+            'producto.costo_moneda' => ['required', Rule::in(Moneda::values())],
+            'producto.costo_moneda_monto' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
+            'producto.costo_tipo_cambio' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
             'producto.sku' => ['nullable', 'string', 'max:50', Rule::unique('productos', 'sku')->ignore($this->producto['id'] ?? null)],
             'producto.upc' => 'nullable|string|max:50',
             'producto.tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
@@ -154,6 +183,7 @@ class CompraLoteProductoEditModal extends Component
             $estadoNuevo = $this->producto['status'];
             $estadoAnterior = $product->estado;
 
+            $esPermuta = $product->permuta()->exists();
             $product->update([
                 'imei' => $this->producto['imei'],
                 'almacenamiento' => $this->producto['almacenamiento'],
@@ -163,7 +193,11 @@ class CompraLoteProductoEditModal extends Component
                 'sku' => $this->producto['sku'],
                 'upc' => $this->producto['upc'] ?? null,
                 // El de un equipo recibido en permuta no cambia: es el pago de la venta.
-                'costo_unidad' => $product->permuta()->exists() ? $product->costo_unidad : $this->producto['costo_unidad'],
+                'costo_unidad' => $esPermuta ? $product->costo_unidad : $this->producto['costo_unidad'],
+                // En USD, Producto deriva costo_unidad de estos dos al guardar.
+                'costo_moneda' => $esPermuta ? $product->costo_moneda : $this->producto['costo_moneda'],
+                'costo_moneda_monto' => $esPermuta ? $product->costo_moneda_monto : ($this->producto['costo_moneda_monto'] ?? null),
+                'costo_tipo_cambio' => $esPermuta ? $product->costo_tipo_cambio : ($this->producto['costo_tipo_cambio'] ?? null),
                 'tipo_venta' => $this->producto['tipo_venta'],
                 'precio_cliente' => $this->producto['precio_cliente'],
                 'precio_vendedor' => $this->producto['precio_vendedor'],

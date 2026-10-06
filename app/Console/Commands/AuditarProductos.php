@@ -31,6 +31,9 @@ class AuditarProductos extends Command
 
     public function handle(): int
     {
+        // La instancia se reutiliza si se llama dos veces en el mismo proceso
+        // (Artisan::call): sin esto, la segunda arrastraba los hallazgos de la primera.
+        $this->problemas = 0;
         $this->newLine();
         $this->line('<options=bold>Auditoria de inventario</> — solo lectura');
 
@@ -50,6 +53,7 @@ class AuditarProductos extends Command
         $this->costoRegalosDescuadrado();
         $this->costoTotalDescuadrado();
         $this->costoCompraDescuadrado();
+        $this->costoUsdDescuadrado();
         $this->totalVentaDescuadrado();
         $this->totalCompraDescuadrado();
         $this->pagadoDescuadrado();
@@ -333,6 +337,18 @@ class AuditarProductos extends Command
             ->get();
 
         $this->reportar('Costo de la linea de compra distinto del costo_unidad', $filas, ['id', 'imei', 'costo_unidad', 'costo', 'compra_id']);
+    }
+
+    /** Un costo cargado en USD: costo_unidad tiene que ser USD x TC (lo deriva Producto). */
+    private function costoUsdDescuadrado(): void
+    {
+        $filas = DB::table('productos')
+            ->where('costo_moneda', 'USD')
+            ->whereRaw('ABS(costo_unidad - ROUND(costo_moneda_monto * costo_tipo_cambio, 2)) > 0.009')
+            ->select('id', 'imei', 'costo_unidad', 'costo_moneda_monto', 'costo_tipo_cambio')
+            ->get();
+
+        $this->reportar('Costo en USD que no cuadra con su tipo de cambio', $filas, ['id', 'imei', 'costo_unidad', 'costo_moneda_monto', 'costo_tipo_cambio']);
     }
 
     private function totalVentaDescuadrado(): void
