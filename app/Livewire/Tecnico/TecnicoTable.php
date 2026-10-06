@@ -37,11 +37,6 @@ class TecnicoTable extends DataTableComponent
             Column::make("Nombre", "nombre")
                 ->sortable()
                 ->searchable(),
-            Column::make("Color", "color")
-                ->format(function ($value, $row) {
-                    return $row->getDivColor();
-                })
-                ->html(),
             Column::make("% Comisión", "comision_porcentaje")
                 ->sortable()
                 ->format(fn($value) => rtrim(rtrim(number_format((float) $value, 2), '0'), '.') . ' %'),

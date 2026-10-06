@@ -54,7 +54,7 @@ class Repuesto extends Model
 
     /**
      * Circulo de color para la datatable. Estilo inline obligatorio: no hay
-     * safelist en tailwind.config.js. Mismo patron que Tecnicos::getDivColor().
+     * safelist en tailwind.config.js.
      */
     public function getDivColor(): string
     {

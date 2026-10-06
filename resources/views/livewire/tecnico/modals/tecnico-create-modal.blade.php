@@ -14,12 +14,6 @@
                 </div>
 
                 <div class="m-2">
-                    <x-label>Color:</x-label>
-                    <input type="color" wire:model="tecnico.color" class="w-50 h-10 rounded-md">
-                    <x-input-error for="tecnico.color"></x-input-error>
-                </div>
-
-                <div class="m-2">
                     <x-label>% Comisión sobre la mano de obra:</x-label>
                     <x-input type="number" step="0.01" min="0" max="100" wire:model="tecnico.comision_porcentaje" class="w-full"></x-input>
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Los repuestos los pone el negocio: el técnico cobra este porcentaje de la mano de obra al terminar la reparación. Las reparaciones por garantía no comisionan.</p>

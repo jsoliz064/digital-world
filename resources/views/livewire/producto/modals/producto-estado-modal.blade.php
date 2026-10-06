@@ -124,7 +124,7 @@
                             <div>
                                 <x-label>
                                     Tecnico:
-                                    {!! $tecnico ? $tecnico->getPColor() : '' !!}
+                                    <span class="ml-2 font-normal">{{ $tecnico?->nombre }}</span>
                                 </x-label>
 
                                 <x-select-tecnicos wire:model="reparacion.tecnico_id" :options="$tecnicos"

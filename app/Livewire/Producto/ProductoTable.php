@@ -116,13 +116,6 @@ class ProductoTable extends DataTableComponent
 
                     $canChangeState = ProductoEstado::puedeAbrir($value);
 
-                    // El color del tecnico pesa mas que el del estado: si el
-                    // equipo esta en su banco, se quiere ver de quien es.
-                    $reparacion = $row->ultimaReparacionPendiente();
-                    if ($reparacion) {
-                        $color = $reparacion->tecnico->color;
-                    }
-
                     return view('livewire.producto.cambiar-estado-button', [
                         'estado' => $value,
                         'color' => $color,

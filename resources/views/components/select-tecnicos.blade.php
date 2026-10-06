@@ -6,12 +6,7 @@
         @endif
 
         @foreach ($options as $option)
-            @if ($option->color)
-                <option value="{{ $option->id }}" style="background-color: {{ $option->color }};">{{ $option->nombre }}
-                </option>
-            @else
-                <option value="{{ $option->id }}">{{ $option->nombre }}</option>
-            @endif
+            <option value="{{ $option->id }}">{{ $option->nombre }}</option>
         @endforeach
     </select>
 </div>

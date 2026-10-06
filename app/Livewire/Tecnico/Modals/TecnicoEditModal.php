@@ -15,7 +15,6 @@ class TecnicoEditModal extends Component
 
     protected $rules = [
         'tecnico.nombre' => 'required|string|max:255',
-        'tecnico.color' => 'nullable|string|max:10',
         'tecnico.comision_porcentaje' => 'required|numeric|min:0|max:100',
         'tecnico.user_id' => 'nullable|integer|exists:users,id',
     ];
@@ -48,7 +47,6 @@ class TecnicoEditModal extends Component
 
         $tecnico = Tecnicos::find($this->tecnico['id']);
         $tecnico->nombre = $this->tecnico['nombre'];
-        $tecnico->color = isset($this->tecnico['color']) ? $this->tecnico['color'] : null;
         $tecnico->comision_porcentaje = $this->tecnico['comision_porcentaje'];
         $tecnico->user_id = $uid;
         $tecnico->save();

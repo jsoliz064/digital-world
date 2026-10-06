@@ -1,10 +1,6 @@
 <div>
-    {{-- El color va en linea: getDivColor() es un bloque centrado y en el
-         celular ocupaba un renglon propio. --}}
     <h2 class="text-center text-lg sm:text-2xl font-bold text-gray-800 dark:text-white mb-3 sm:mb-5">
         Reparaciones de {{ $tecnico->nombre }}
-        <span class="inline-block w-4 h-4 align-middle rounded-full border border-gray-300"
-            style="background-color: {{ $tecnico->color ?: 'transparent' }}"></span>
     </h2>
 
     {{-- Una sola fila compacta: pendientes + las tres cifras de comision. --}}

@@ -24,18 +24,4 @@ class Tecnicos extends Model
     {
         return $this->hasMany(Comision::class, 'tecnico_id');
     }
-
-    public function getDivColor()
-    {
-        $color = $this->color;
-        $style = $color ? "background-color: {$color};" : "background-color: transparent;";
-        return '<div class="w-6 h-6 rounded-full border border-gray-300 mx-auto" style="' . $style . '"></div>';
-    }
-
-    public function getPColor()
-    {
-        $color = $this->color;
-        $style = $color ? "color: {$color};" : "color: transparent;";
-        return '<p class="inline-block ml-2" style="' . $style . '">' . $this->nombre . '</p>';
-    }
 }
