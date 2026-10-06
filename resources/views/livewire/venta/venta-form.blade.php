@@ -70,105 +70,120 @@
     {{-- Lineas --}}
     @if (count($lineas) > 0 || count($cobrosExistentes) > 0)
         <div class="mt-4 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
-                        <tr>
-                            <th class="p-2 text-left">Detalle</th>
-                            <th class="p-2 text-right w-20">Cant.</th>
-                            <th class="p-2 text-right w-28">Precio Bs</th>
-                            <th class="p-2 text-right w-24">Desc. Bs</th>
-                            <th class="p-2 text-right w-20">Garantía</th>
-                            <th class="p-2 text-right w-28">Subtotal</th>
-                            <th class="p-2 w-10"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($lineas as $index => $linea)
-                            @php($esEquipo = $linea['tipo'] === 'Producto')
-                            {{-- wire:key con el indice: los inputs se enlazan por posicion. --}}
-                            <tr class="border-t border-gray-200 dark:border-gray-700 align-top" wire:key="linea-{{ $linea['tipo'] }}-{{ $linea['id'] }}-{{ $index }}">
-                                <td class="p-2">
-                                    {!! \App\Enums\LineaTipo::badge($linea['tipo']) !!}
-                                    <span class="text-gray-900 dark:text-gray-100">{{ $linea['descripcion'] }}</span>
-                                    @if ($linea['codigo'])
-                                        <span class="block text-xs text-gray-500 font-mono">{{ $esEquipo ? 'IMEI ' : 'SKU ' }}{{ $linea['codigo'] }}</span>
-                                    @endif
-                                    @if (!$esEquipo)
-                                        <span class="block text-xs text-gray-500">Stock aquí: {{ $linea['stock'] }}</span>
-                                        {{-- Con que equipo se vende: se agrupa bajo el en el detalle y en la nota. --}}
-                                        @if (count($equiposVenta) > 0)
-                                            <select wire:model.live="lineas.{{ $index }}.con_producto_id"
-                                                class="mt-1 block w-full max-w-xs text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
-                                                <option value="">Suelto (sin equipo)</option>
-                                                @foreach ($equiposVenta as $pid => $etiqueta)
-                                                    <option value="{{ $pid }}">Con {{ $etiqueta }}</option>
-                                                @endforeach
-                                            </select>
-                                        @endif
-                                    @endif
-                                    @if ($esEquipo && ($linea['repuestos_elegibles'] ?? 0) > 0)
-                                        @php($elegidos = count($repuestosVenta[$linea['id']] ?? []))
-                                        <button type="button" wire:click="abrirRepuestosDe({{ $linea['id'] }})"
-                                            class="block text-xs underline {{ $elegidos ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-brand-600 dark:text-brand-400' }}">
-                                            {{ $elegidos ? $elegidos . ' repuesto(s) de taller a cobrar' : $linea['repuestos_elegibles'] . ' repuesto(s) de taller cobrable(s)' }}
-                                        </button>
-                                    @endif
-                                </td>
-                                <td class="p-2">
-                                    @if ($esEquipo)
-                                        <span class="block text-right">1</span>
-                                    @else
-                                        <x-input type="number" min="1" max="{{ $linea['stock'] }}" class="w-full text-right"
-                                            wire:model.live.debounce.400ms="lineas.{{ $index }}.cantidad" onfocus="this.select()" />
-                                    @endif
-                                </td>
-                                <td class="p-2"><x-input type="number" min="0" step="0.01" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.precio" onfocus="this.select()" /></td>
-                                <td class="p-2"><x-input type="number" min="0" step="0.01" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.descuento" onfocus="this.select()" /></td>
-                                <td class="p-2">
-                                    @if ($esEquipo)
-                                        <x-input type="number" min="0" max="60" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.garantia_meses" title="Meses de garantía" />
-                                    @else
-                                        <span class="block text-right text-gray-400">—</span>
-                                    @endif
-                                </td>
-                                <td class="p-2 text-right whitespace-nowrap">{{ number_format($this->subtotalLinea($linea), 2) }}</td>
-                                <td class="p-2 text-center">
-                                    <button type="button" wire:click="quitarLinea({{ $index }})" class="text-red-600 hover:text-red-800 text-lg" title="Quitar">&times;</button>
-                                </td>
-                            </tr>
-                            {{-- Los regalos del equipo: van con el a precio 0, sin quitar (se quitan desde la ficha del equipo). --}}
-                            @if ($esEquipo)
-                                @foreach ($regalos[$linea['id']] ?? [] as $regalo)
-                                    <tr class="bg-pink-50 dark:bg-pink-900/20" wire:key="regalo-{{ $linea['id'] }}-{{ $loop->index }}">
-                                        <td class="p-2 pl-6" colspan="1">
-                                            <span class="text-gray-500">↳</span>
-                                            {!! \App\Enums\LineaTipo::badge('Accesorio') !!}
-                                            <span class="text-gray-900 dark:text-gray-100">{{ $regalo['nombre'] }}</span>
-                                            <span class="block text-xs text-pink-700 dark:text-pink-300">Regalo con el equipo</span>
-                                        </td>
-                                        <td class="p-2 text-right">{{ $regalo['cantidad'] }}</td>
-                                        <td class="p-2 text-right text-gray-500">0.00</td>
-                                        <td class="p-2"></td>
-                                        <td class="p-2"></td>
-                                        <td class="p-2 text-right whitespace-nowrap">0.00</td>
-                                        <td></td>
-                                    </tr>
-                                @endforeach
+            {{-- Grid y no <table>: en el celular cada linea es una tarjeta con los
+                 inputs a media pantalla (en la tabla de 7 columnas un precio de
+                 1000 mostraba un solo digito). En pantalla ancha vuelven a ser
+                 columnas. Un solo juego de inputs: dos wire:model iguales se pisan. --}}
+            <div class="hidden md:grid md:grid-cols-[minmax(0,1fr)_5rem_8rem_7rem_5rem_7rem_2rem] gap-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-semibold rounded-t-md">
+                <div class="p-2 text-left">Detalle</div>
+                <div class="p-2 text-right">Cant.</div>
+                <div class="p-2 text-right">Precio Bs</div>
+                <div class="p-2 text-right">Desc. Bs</div>
+                <div class="p-2 text-right">Garantía</div>
+                <div class="p-2 text-right">Subtotal</div>
+                <div class="p-2"></div>
+            </div>
+            <div class="text-sm space-y-3 md:space-y-0">
+                @foreach ($lineas as $index => $linea)
+                    @php($esEquipo = $linea['tipo'] === 'Producto')
+                    {{-- wire:key con el indice: los inputs se enlazan por posicion. --}}
+                    <div class="relative grid grid-cols-2 gap-2 rounded-md border border-gray-200 p-2 md:grid-cols-[minmax(0,1fr)_5rem_8rem_7rem_5rem_7rem_2rem] md:rounded-none md:border-0 md:border-t md:p-0 dark:border-gray-700"
+                        wire:key="linea-{{ $linea['tipo'] }}-{{ $linea['id'] }}-{{ $index }}">
+                        <div class="col-span-2 pr-8 md:col-span-1 md:p-2">
+                            {!! \App\Enums\LineaTipo::badge($linea['tipo']) !!}
+                            <span class="text-gray-900 dark:text-gray-100">{{ $linea['descripcion'] }}</span>
+                            @if ($linea['codigo'])
+                                <span class="block text-xs text-gray-500 font-mono">{{ $esEquipo ? 'IMEI ' : 'SKU ' }}{{ $linea['codigo'] }}</span>
                             @endif
+                            @if (!$esEquipo)
+                                <span class="block text-xs text-gray-500">Stock aquí: {{ $linea['stock'] }}</span>
+                                {{-- Con que equipo se vende: se agrupa bajo el en el detalle y en la nota. --}}
+                                @if (count($equiposVenta) > 0)
+                                    <select wire:model.live="lineas.{{ $index }}.con_producto_id"
+                                        class="mt-1 block w-full max-w-xs text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:border-brand-500 focus:ring-brand-500 rounded-md shadow-sm">
+                                        <option value="">Suelto (sin equipo)</option>
+                                        @foreach ($equiposVenta as $pid => $etiqueta)
+                                            <option value="{{ $pid }}">Con {{ $etiqueta }}</option>
+                                        @endforeach
+                                    </select>
+                                @endif
+                            @endif
+                            @if ($esEquipo && ($linea['repuestos_elegibles'] ?? 0) > 0)
+                                @php($elegidos = count($repuestosVenta[$linea['id']] ?? []))
+                                <button type="button" wire:click="abrirRepuestosDe({{ $linea['id'] }})"
+                                    class="block text-xs underline {{ $elegidos ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-brand-600 dark:text-brand-400' }}">
+                                    {{ $elegidos ? $elegidos . ' repuesto(s) de taller a cobrar' : $linea['repuestos_elegibles'] . ' repuesto(s) de taller cobrable(s)' }}
+                                </button>
+                            @endif
+                        </div>
+                        @if ($esEquipo)
+                            <div class="hidden md:block md:p-2 text-right">1</div>
+                        @else
+                            <label class="block md:p-2">
+                                <span class="md:hidden text-xs text-gray-500">Cant.</span>
+                                <x-input type="number" min="1" max="{{ $linea['stock'] }}" inputmode="numeric" class="w-full text-right"
+                                    wire:model.live.debounce.400ms="lineas.{{ $index }}.cantidad" onfocus="this.select()" />
+                            </label>
+                        @endif
+                        <label class="block md:p-2">
+                            <span class="md:hidden text-xs text-gray-500">Precio Bs</span>
+                            <x-input type="number" min="0" step="0.01" inputmode="decimal" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.precio" onfocus="this.select()" />
+                        </label>
+                        <label class="block md:p-2">
+                            <span class="md:hidden text-xs text-gray-500">Desc. Bs</span>
+                            <x-input type="number" min="0" step="0.01" inputmode="decimal" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.descuento" onfocus="this.select()" />
+                        </label>
+                        @if ($esEquipo)
+                            <label class="block md:p-2">
+                                <span class="md:hidden text-xs text-gray-500">Garantía (meses)</span>
+                                <x-input type="number" min="0" max="60" inputmode="numeric" class="w-full text-right" wire:model.live.debounce.400ms="lineas.{{ $index }}.garantia_meses" title="Meses de garantía" />
+                            </label>
+                        @else
+                            <div class="hidden md:block md:p-2 text-right text-gray-400">—</div>
+                        @endif
+                        <div class="col-span-2 flex items-center justify-between md:col-span-1 md:block md:p-2 md:text-right whitespace-nowrap">
+                            <span class="md:hidden text-xs text-gray-500">Subtotal Bs</span>
+                            <span class="font-semibold md:font-normal">{{ number_format($this->subtotalLinea($linea), 2) }}</span>
+                        </div>
+                        <div class="absolute right-1 top-1 md:static md:p-2 md:text-center">
+                            <button type="button" wire:click="quitarLinea({{ $index }})" class="px-2 text-red-600 hover:text-red-800 text-lg" title="Quitar">&times;</button>
+                        </div>
+                    </div>
+                    {{-- Los regalos del equipo: van con el a precio 0, sin quitar (se quitan desde la ficha del equipo). --}}
+                    @if ($esEquipo)
+                        @foreach ($regalos[$linea['id']] ?? [] as $regalo)
+                            <div class="grid grid-cols-2 gap-2 rounded-md bg-pink-50 p-2 md:grid-cols-[minmax(0,1fr)_5rem_8rem_7rem_5rem_7rem_2rem] md:rounded-none md:p-0 dark:bg-pink-900/20"
+                                wire:key="regalo-{{ $linea['id'] }}-{{ $loop->index }}">
+                                <div class="col-span-2 md:col-span-1 md:p-2 md:pl-6">
+                                    <span class="text-gray-500">↳</span>
+                                    {!! \App\Enums\LineaTipo::badge('Accesorio') !!}
+                                    <span class="text-gray-900 dark:text-gray-100">{{ $regalo['nombre'] }}</span>
+                                    <span class="block text-xs text-pink-700 dark:text-pink-300">Regalo con el equipo</span>
+                                </div>
+                                <div class="md:p-2 md:text-right"><span class="md:hidden text-xs text-gray-500">Cant. </span>{{ $regalo['cantidad'] }}</div>
+                                <div class="hidden md:block md:p-2 text-right text-gray-500">0.00</div>
+                                <div class="hidden md:block"></div>
+                                <div class="hidden md:block"></div>
+                                <div class="text-right md:p-2 whitespace-nowrap"><span class="md:hidden text-xs text-gray-500">Subtotal Bs </span>0.00</div>
+                                <div class="hidden md:block"></div>
+                            </div>
                         @endforeach
-                        @foreach ($cobrosExistentes as $cobro)
-                            <tr class="border-t border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/30" wire:key="cobro-{{ $loop->index }}">
-                                <td class="p-2" colspan="5">
-                                    {!! \App\Enums\LineaTipo::badge('Repuesto') !!} {{ $cobro['nombre'] }}
-                                    <span class="block text-xs text-gray-500">Cobro de taller (ya registrado). Se anula desde el detalle de la venta.</span>
-                                </td>
-                                <td class="p-2 text-right">{{ number_format($cobro['subtotal'], 2) }}</td>
-                                <td></td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+                    @endif
+                @endforeach
+                @foreach ($cobrosExistentes as $cobro)
+                    <div class="grid grid-cols-2 gap-2 rounded-md bg-green-50 p-2 md:grid-cols-[minmax(0,1fr)_5rem_8rem_7rem_5rem_7rem_2rem] md:rounded-none md:border-t md:border-gray-200 md:p-0 dark:bg-green-900/30"
+                        wire:key="cobro-{{ $loop->index }}">
+                        <div class="col-span-2 md:col-span-5 md:p-2">
+                            {!! \App\Enums\LineaTipo::badge('Repuesto') !!} {{ $cobro['nombre'] }}
+                            <span class="block text-xs text-gray-500">Cobro de taller (ya registrado). Se anula desde el detalle de la venta.</span>
+                        </div>
+                        <div class="col-span-2 flex justify-between md:col-span-1 md:block md:p-2 md:text-right">
+                            <span class="md:hidden text-xs text-gray-500">Subtotal Bs</span>
+                            <span>{{ number_format($cobro['subtotal'], 2) }}</span>
+                        </div>
+                        <div class="hidden md:block"></div>
+                    </div>
+                @endforeach
             </div>
             @error('lineas.*.cantidad') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
             <x-input-error for="lineas" class="mt-1" />
@@ -187,12 +202,12 @@
             </div>
             <div>
                 <x-label value="Descuento Bs" />
-                <x-input type="number" min="0" step="0.01" class="mt-1 w-full" wire:model.live.debounce.400ms="venta.descuento" onfocus="this.select()" />
+                <x-input type="number" min="0" step="0.01" inputmode="decimal" class="mt-1 w-full" wire:model.live.debounce.400ms="venta.descuento" onfocus="this.select()" />
                 <x-input-error for="venta.descuento" />
             </div>
             <div>
                 <x-label value="Mano de obra Bs" />
-                <x-input type="number" min="0" step="0.01" class="mt-1 w-full" wire:model.live.debounce.400ms="venta.mano_obra" onfocus="this.select()" />
+                <x-input type="number" min="0" step="0.01" inputmode="decimal" class="mt-1 w-full" wire:model.live.debounce.400ms="venta.mano_obra" onfocus="this.select()" />
                 <x-input-error for="venta.mano_obra" />
             </div>
             <div>
