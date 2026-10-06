@@ -29,6 +29,7 @@ No hay estado de compra, no hay forma de reclamar al proveedor, y no hay registr
 Las dos pantallas se unifican: **una compra es una sola orden** con su fecha, proveedor (obligatorio), sucursal de ingreso y usuario que la registró. Cada línea es lo que llegó:
 
 - **Equipos**: uno por línea, cargados desde el detalle de la compra con su IMEI, UPC, SKU, grado, tipo de venta, costo y fotos. La carga de corrido de varios equipos del mismo modelo se mantiene.
+  - El costo se carga **en Bs o en USD con su tipo de cambio**, equipo por equipo. En USD se guarda el costo en Bs (USD × tipo de cambio), que es el que cuenta para el total de la compra, la ganancia de la venta y los reportes; los precios siguen en Bs.
 - **Repuestos y accesorios**: con su cantidad y su costo; el stock de la sucursal sube solo.
 
 El total de la compra es la suma de sus líneas. Quitar un equipo o una línea lo recalcula; una compra cuyos artículos ya se vendieron no se puede borrar.
