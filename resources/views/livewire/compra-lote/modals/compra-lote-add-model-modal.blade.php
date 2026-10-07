@@ -248,7 +248,7 @@
                             <div class="animate-fade-in">
                                 <x-label value="Fotos del Producto" />
                                 <div class="mt-2">
-                                    <button type="button" x-on:click="$dispatch('abrir-camara-fotos', { alTomar: (foto) => $wire.photoCapturedCreate(foto) })"
+                                    <button type="button" x-on:click="$dispatch('abrir-camara-fotos', { alTomar: (foto) => subirFoto($wire, 'fotoNueva', foto) })"
                                         class="w-full flex items-center justify-center px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-md 
                        transition-all duration-300 hover:scale-105 shadow-md">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none"
@@ -261,12 +261,12 @@
                                         Tomar Fotos
                                     </button>
 
-                                    @if (count($photos) > 0)
+                                    @if (count($vistaFotos) > 0)
                                         <div class="animate-fade-in mt-4" x-data="photoCarousel()"
-                                            {{-- La clave cambia con cada foto: Alpine no relee el x-init, y sin
-                                                 esto el carrusel se quedaba con la primera. --}}
-                                            wire:key="carrusel-{{ count($photos) }}"
-                                            x-init="init({{ json_encode($photos) }})">
+                                            {{-- La clave cambia con las fotos (no con su cantidad: quitar una y
+                                                 sacar otra deja la misma): Alpine no relee el x-init. --}}
+                                            wire:key="carrusel-{{ md5(implode('|', $vistaFotos)) }}"
+                                            x-init="init(@js($vistaFotos))">
                                             <x-label x-text="`Fotos del Producto (${photos.length})`" />
 
                                             <div class="relative mt-2">
@@ -277,7 +277,7 @@
                                                             :key="`photo-${index}`">
                                                             <div class="transition-opacity duration-300 ease-in-out absolute inset-0 flex items-center justify-center p-2"
                                                                 :style="`opacity: ${currentPhotoIndex === index ? '1' : '0'};`">
-                                                                <img :src="photo"
+                                                                <img :src="photo" loading="lazy"
                                                                     class="max-h-full max-w-full object-contain rounded-lg shadow-md border border-gray-200 dark:border-gray-600">
                                                                 <!-- Remove Button -->
                                                                 <button wire:click="removePhoto"
@@ -346,7 +346,7 @@
                                                                 'border-transparent hover:border-gray-300 dark:hover:border-gray-500': currentPhotoIndex !==
                                                                     indexThumbnail
                                                             }">
-                                                            <img :src="photo"
+                                                            <img :src="photo" loading="lazy"
                                                                 @click="goToPhoto(indexThumbnail)"
                                                                 class="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity duration-200">
 
@@ -473,10 +473,7 @@
                     init(initialPhotos) {
                         this.photos = initialPhotos;
 
-                        // Sync with Livewire when photos change
-                        this.$watch('photos', (value) => {
-                            @this.set('photos', value);
-                        });
+                        // Las fotos son URLs y solo se muestran: ya no se devuelven al servidor.
 
                         this.$watch('currentPhotoIndex', (value) => {
                             @this.set('currentPhotoIndex', value);

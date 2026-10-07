@@ -224,7 +224,7 @@ class CompraService
      * reintento choca ahi en vez de crear el equipo dos veces.
      *
      * @param  array  $datos  columnas del producto (sin compra: no existe la columna)
-     * @param  string[]  $fotos  imagenes en base64
+     * @param  \Illuminate\Http\UploadedFile[]  $fotos  se guardan con ProductoImagen::guardar()
      */
     public function agregarProducto(Compra $compra, array $datos, array $fotos = []): Producto
     {
@@ -260,7 +260,7 @@ class CompraService
         ]);
 
         foreach ($fotos as $foto) {
-            ProductoImagen::create(['base64' => $foto, 'producto_id' => $producto->id]);
+            ProductoImagen::guardar($producto, $foto);
         }
 
         $producto->recalcularCosto();

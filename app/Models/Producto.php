@@ -140,7 +140,8 @@ class Producto extends Model
 
     public function imagenes()
     {
-        return $this->hasMany(ProductoImagen::class);
+        // Por id: la primera es la de la miniatura de las tablas (MIN(id)).
+        return $this->hasMany(ProductoImagen::class)->orderBy('id');
     }
 
     public function reparaciones()

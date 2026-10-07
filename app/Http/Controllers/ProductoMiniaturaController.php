@@ -8,9 +8,9 @@ use App\Models\ProductoImagen;
  * La miniatura de una foto de equipo, para las tablas (Productos y el detalle
  * de la compra).
  *
- * Por URL y no el base64 en linea: cada foto pesa 100-300 KB, y rappasoft
- * redibuja la tabla en cada filtro, busqueda o pagina; 25 filas eran varios MB
- * por render. Se reduce una vez a 96 px con GD y queda en disco.
+ * La foto completa es de hasta 1280 px (100-300 KB) y la tabla muestra 40 px;
+ * rappasoft la redibuja en cada filtro, busqueda o pagina. Se reduce una vez a
+ * 96 px con GD y queda en disco.
  *
  * Cache eterno: una imagen no se edita nunca (editar fotos borra filas y crea
  * otras), asi que su id identifica siempre los mismos bytes.
@@ -48,10 +48,11 @@ class ProductoMiniaturaController extends Controller
         $ruta = self::ruta($imagen);
 
         if (!is_file($ruta)) {
-            $base64 = ProductoImagen::whereKey($imagen)->value('base64');
-            abort_if($base64 === null, 404);
+            $foto = ProductoImagen::find($imagen);
+            $contenido = $foto?->contenido();
+            abort_if($contenido === null, 404);
 
-            $this->generar($base64, $ruta);
+            $this->generar($contenido, $ruta);
         }
 
         // setPrivate(): BinaryFileResponse se marca public sola, y va detras del login.
@@ -62,10 +63,9 @@ class ProductoMiniaturaController extends Controller
     }
 
     /** Recorta al centro en cuadrado y la reduce a LADO x LADO. */
-    private function generar(string $base64, string $ruta): void
+    private function generar(string $contenido, string $ruta): void
     {
-        $datos = base64_decode(preg_replace('/^data:image\/[a-z0-9.+-]+;base64,/i', '', $base64), true);
-        $origen = $datos !== false ? @imagecreatefromstring($datos) : false;
+        $origen = @imagecreatefromstring($contenido);
         abort_if($origen === false, 404);
 
         $ancho = imagesx($origen);

@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 /**
  * Alta de un equipo dentro de una compra (uno por uno: lleva IMEI, fotos y
@@ -31,6 +32,8 @@ use Livewire\Component;
  */
 class CompraLoteAddModelModal extends Component
 {
+    use WithFileUploads;
+
     public $openModal = false;
     public $selectedModel;
     public $compra;
@@ -62,7 +65,13 @@ class CompraLoteAddModelModal extends Component
     public $sucursales = [];
     public $colores = [];
 
-    public $photos = [];
+    /**
+     * Las fotos llegan de la camara como archivos (subirFoto() en app.js, el
+     * upload de Livewire) y esperan aqui hasta guardar el equipo. Antes eran
+     * data URLs en el estado: cada peticion del modal arrastraba todas.
+     */
+    public $fotoNueva;
+    public array $fotos = [];
 
     public $detalles = [
         'Batería cambiada',
@@ -91,7 +100,6 @@ class CompraLoteAddModelModal extends Component
     public $detallesText;
     public $estado_grado = '1';
 
-    protected $listeners = ['photoCaptured'];
     public $currentPhotoIndex = 0;
 
     protected function rules()
@@ -189,31 +197,38 @@ class CompraLoteAddModelModal extends Component
             'estadosAlta' => collect(ProductoEstado::cases())
                 ->filter(fn($e) => in_array($e->value, $permitidos, true)),
             'enBorrador' => Compra::whereKey($this->compra->id)->value('finalizada_at') === null,
+            // URLs de vista previa de Livewire: el carrusel ya no recibe base64.
+            'vistaFotos' => array_map(fn($foto) => $foto->temporaryUrl(), $this->fotos),
         ]);
     }
 
-    public function photoCapturedCreate($photoData)
+    /** Cada disparo de la camara: se valida y pasa a la lista (sin aviso: la camara lleva su contador). */
+    public function updatedFotoNueva()
     {
-        // Sin aviso por foto: la camara queda abierta y lleva su contador.
-        $this->photos[] = $photoData;
+        $this->validate(['fotoNueva' => 'image|mimes:jpg,jpeg,png,webp|max:8192'], [
+            'fotoNueva.*' => 'La foto debe ser una imagen JPG, PNG o WEBP de hasta 8 MB.',
+        ]);
+
+        $this->fotos[] = $this->fotoNueva;
+        $this->fotoNueva = null;
     }
 
     public function removePhoto()
     {
-        if (!isset($this->photos[$this->currentPhotoIndex])) {
+        if (!isset($this->fotos[$this->currentPhotoIndex])) {
             return;
         }
 
-        unset($this->photos[$this->currentPhotoIndex]);
-        $this->photos = array_values($this->photos);
+        unset($this->fotos[$this->currentPhotoIndex]);
+        $this->fotos = array_values($this->fotos);
 
-        if (empty($this->photos)) {
+        if (empty($this->fotos)) {
             $this->currentPhotoIndex = 0;
 
             return;
         }
 
-        $this->currentPhotoIndex = min(max(0, $this->currentPhotoIndex - 1), count($this->photos) - 1);
+        $this->currentPhotoIndex = min(max(0, $this->currentPhotoIndex - 1), count($this->fotos) - 1);
     }
 
     #[On('openModalSelector')]
@@ -307,7 +322,9 @@ class CompraLoteAddModelModal extends Component
             ? $estadoUltimo
             : ProductoEstado::Inventario->value;
         $this->tecnico_selected = null;
-        $this->photos = [];
+        $this->fotos = [];
+        $this->fotoNueva = null;
+        $this->currentPhotoIndex = 0;
         $this->sucursal_id = $ultimo?->sucursal_id ?? $this->compra->sucursal_id;
     }
 
@@ -391,7 +408,7 @@ class CompraLoteAddModelModal extends Component
                     'estado_grado' => $this->estado_grado,
                     'disponible_catalogo' => $this->disponible_catalogo,
                     'sucursal_id' => $this->sucursal_id,
-                ], $this->photos);
+                ], $this->fotos);
 
                 if ($this->status == ProductoEstado::Reparacion->value) {
                     $tecnico = Tecnicos::findOrFail($this->tecnico_selected);

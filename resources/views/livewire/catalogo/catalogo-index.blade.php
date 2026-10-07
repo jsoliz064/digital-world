@@ -425,7 +425,8 @@
                                     :style="`transform: translateX(-${currentIndex * 100}%)`">
                                     @foreach ($product->imagenes as $image)
                                         <div class="w-full h-full flex-shrink-0">
-                                            <img src="{{ $image->base64 }}" alt="{{ $product->modelo }}"
+                                            {{-- Archivo del disco public, no base64: el navegador lo cachea y el HTML no carga las fotos. --}}
+                                            <img src="{{ $image->url() }}" alt="{{ $product->modelo?->nombre }}" loading="lazy"
                                                 class="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105">
                                         </div>
                                     @endforeach
@@ -611,7 +612,7 @@
                                 :style="`transform: translateX(-${currentIndex * 100}%)`">
                                 @foreach ($selectedProduct->imagenes as $image)
                                     <div class="w-full h-full flex-shrink-0">
-                                        <img src="{{ $image->base64 }}" alt="{{ $selectedProduct->modelo }}"
+                                        <img src="{{ $image->url() }}" alt="{{ $selectedProduct->modelo?->nombre }}"
                                             class="w-full h-full object-contain">
                                     </div>
                                 @endforeach

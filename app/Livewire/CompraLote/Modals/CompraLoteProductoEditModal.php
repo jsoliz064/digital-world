@@ -20,10 +20,12 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Livewire\WithFileUploads;
 
 
 class CompraLoteProductoEditModal extends Component
 {
+    use WithFileUploads;
 
     public $openModal = false;
     public $selectedModel;
@@ -32,10 +34,16 @@ class CompraLoteProductoEditModal extends Component
     public $colores = [];
     public $sucursales = [];
 
-    public $photos = [];
+    /**
+     * El carrusel muestra primero las guardadas ([id, url]) y despues las
+     * nuevas, archivos subidos por la camara (subirFoto() en app.js) que se
+     * guardan al actualizar. Quitar una guardada la anota en photosToDelete.
+     */
+    public array $fotosGuardadas = [];
+    public $fotoNueva;
+    public array $fotos = [];
     public $photosToDelete = [];
 
-    protected $listeners = ['photoCaptured'];
     public $currentPhotoIndex = 0;
     public $producto;
 
@@ -45,7 +53,12 @@ class CompraLoteProductoEditModal extends Component
 
     public function render()
     {
-        return view('livewire.compra-lote.modals.compra-lote-producto-edit-modal');
+        return view('livewire.compra-lote.modals.compra-lote-producto-edit-modal', [
+            'vistaFotos' => array_merge(
+                array_column($this->fotosGuardadas, 'url'),
+                array_map(fn($foto) => $foto->temporaryUrl(), $this->fotos),
+            ),
+        ]);
     }
 
     public function mount()
@@ -75,7 +88,14 @@ class CompraLoteProductoEditModal extends Component
         // desactivada, el select no puede quedar sin su opcion.
         $this->sucursales = Sucursal::paraSelect($producto->sucursal_id);
 
-        $this->photos = $producto->imagenes->pluck('base64')->toArray();
+        unset($this->producto['imagenes']);
+        $this->fotosGuardadas = $producto->imagenes->sortBy('id')
+            ->map(fn($imagen) => ['id' => $imagen->id, 'url' => $imagen->url()])
+            ->values()->all();
+        $this->fotos = [];
+        $this->fotoNueva = null;
+        $this->photosToDelete = [];
+        $this->currentPhotoIndex = 0;
 
         $this->selectedModel = $producto->modelo;
 
@@ -216,27 +236,12 @@ class CompraLoteProductoEditModal extends Component
 
             if (!empty($this->photosToDelete)) {
                 // Por Eloquent y no por query builder: el evento deleted borra su miniatura.
-                ProductoImagen::whereIn('id', $this->photosToDelete)->get()->each->delete();
+                // Solo las de este equipo: los ids llegan del estado del componente.
+                ProductoImagen::where('producto_id', $product->id)->whereIn('id', $this->photosToDelete)->get()->each->delete();
             }
 
-            $existingPhotos = $product->imagenes->pluck('base64', 'id')->toArray();
-            $processedPhotos = 0;
-
-            foreach ($this->photos as $photo) {
-                if (is_array($photo)) {
-                    $photoBase64 = $photo['base64'] ?? $photo;
-                    $photoId = $photo['id'] ?? null;
-                } else {
-                    $photoBase64 = $photo;
-                    $photoId = null;
-                }
-
-                $existingPhotoId = array_search($photoBase64, $existingPhotos);
-
-                if ($existingPhotoId === false && !$photoId) {
-                    $product->imagenes()->create(['base64' => $photoBase64]);
-                    $processedPhotos++;
-                }
+            foreach ($this->fotos as $foto) {
+                ProductoImagen::guardar($product, $foto);
             }
 
             if ($this->enBorrador) {
@@ -281,49 +286,53 @@ class CompraLoteProductoEditModal extends Component
         $this->dispatch('refreshProductoTable');
     }
 
-    // Photo handling methods
-    public function photoCapturedEdit($photoData)
+    /** Cada disparo de la camara: se valida y pasa a la lista (sin aviso: la camara lleva su contador). */
+    public function updatedFotoNueva()
     {
-        // Sin aviso por foto: la camara queda abierta y lleva su contador.
-        $this->photos[] = $photoData;
+        $this->validate(['fotoNueva' => 'image|mimes:jpg,jpeg,png,webp|max:8192'], [
+            'fotoNueva.*' => 'La foto debe ser una imagen JPG, PNG o WEBP de hasta 8 MB.',
+        ]);
+
+        $this->fotos[] = $this->fotoNueva;
+        $this->fotoNueva = null;
     }
 
+    private function cantidadFotos(): int
+    {
+        return count($this->fotosGuardadas) + count($this->fotos);
+    }
+
+    /** Quita la foto actual: una guardada se borra al actualizar; una nueva, ya. */
     public function removePhoto()
     {
-        if (!isset($this->photos[$this->currentPhotoIndex])) {
+        $i = (int) $this->currentPhotoIndex;
+        $guardadas = count($this->fotosGuardadas);
+
+        if ($i < $guardadas) {
+            $this->photosToDelete[] = $this->fotosGuardadas[$i]['id'];
+            unset($this->fotosGuardadas[$i]);
+            $this->fotosGuardadas = array_values($this->fotosGuardadas);
+        } elseif (isset($this->fotos[$i - $guardadas])) {
+            unset($this->fotos[$i - $guardadas]);
+            $this->fotos = array_values($this->fotos);
+        } else {
             return;
         }
 
-        if (isset($this->producto['imagenes'][$this->currentPhotoIndex]['id'])) {
-            $this->photosToDelete[] = $this->producto['imagenes'][$this->currentPhotoIndex]['id'];
-            unset($this->producto['imagenes'][$this->currentPhotoIndex]);
-
-            if (isset($this->producto['imagenes'])) {
-                $this->producto['imagenes'] = array_values($this->producto['imagenes']);
-            }
-        }
-
-        unset($this->photos[$this->currentPhotoIndex]);
-        $this->photos = array_values($this->photos);
-
-        if ($this->currentPhotoIndex > 0 && $this->currentPhotoIndex >= count($this->photos)) {
-            $this->currentPhotoIndex--;
-        }
-
-        if (empty($this->photos)) {
-            $this->currentPhotoIndex = 0;
-        }
+        $total = $this->cantidadFotos();
+        $this->currentPhotoIndex = $total === 0 ? 0 : min($i, $total - 1);
     }
+
     public function prevPhoto()
     {
         $this->currentPhotoIndex = $this->currentPhotoIndex > 0
             ? $this->currentPhotoIndex - 1
-            : count($this->photos) - 1;
+            : $this->cantidadFotos() - 1;
     }
 
     public function nextPhoto()
     {
-        $this->currentPhotoIndex = $this->currentPhotoIndex < count($this->photos) - 1
+        $this->currentPhotoIndex = $this->currentPhotoIndex < $this->cantidadFotos() - 1
             ? $this->currentPhotoIndex + 1
             : 0;
     }

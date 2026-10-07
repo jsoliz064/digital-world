@@ -341,6 +341,25 @@ document.addEventListener('alpine:init', () => {
         },
     }));
 
+    // Una foto de la camara (data URL) sube como archivo con el upload de
+    // Livewire: $wire.upload la deja en el temporal y el componente la recibe
+    // en `propiedad`. Antes el base64 viajaba en el estado del componente y
+    // cada peticion del modal arrastraba todas las fotos.
+    window.subirFoto = async ($wire, propiedad, dataUrl) => {
+        const avisar = () => {
+            const msg = 'No se pudo subir la foto.';
+            window.toastr ? window.toastr.error(msg) : window.alert(msg);
+        };
+
+        try {
+            const blob = await (await fetch(dataUrl)).blob();
+            const archivo = new File([blob], 'foto.jpg', { type: blob.type || 'image/jpeg' });
+            $wire.upload(propiedad, archivo, () => {}, avisar);
+        } catch {
+            avisar();
+        }
+    };
+
     // Compartir el recibo PDF de una venta (detalle de la venta). En el celular
     // abre el menu de compartir con el PDF adjunto: el vendedor elige WhatsApp y
     // el contacto. Donde no se pueden compartir archivos (la PC), descarga el
