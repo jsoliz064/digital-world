@@ -72,9 +72,14 @@ class ProductoImagen extends Model
         return self::create(['producto_id' => $producto->id, 'ruta' => $ruta]);
     }
 
+    /**
+     * asset() y no Storage::url(): el disco arma la URL con APP_URL, y quien entra
+     * por otra direccion (127.0.0.1:8000, la IP del local desde el celular) veia
+     * la foto rota. asset() usa la del pedido, como route() en la miniatura.
+     */
     public function url(): string
     {
-        return Storage::disk(self::DISCO)->url($this->ruta);
+        return asset('storage/' . $this->ruta);
     }
 
     public function contenido(): ?string
