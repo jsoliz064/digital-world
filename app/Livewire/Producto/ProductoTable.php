@@ -64,8 +64,9 @@ class ProductoTable extends DataTableComponent
 
         return [
             Column::make("Foto")
-                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id))
-                ->html(),
+                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id, $row->id))
+                ->html()
+                ->collapseOnTablet(),
             Column::make("Modelo", "modelo.nombre")
                 ->sortable()
                 ->searchable(),

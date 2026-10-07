@@ -8,33 +8,46 @@ use App\Models\ProductoImagen;
  * La miniatura de una foto de equipo, para las tablas (Productos y el detalle
  * de la compra).
  *
- * La foto completa es de hasta 1280 px (100-300 KB) y la tabla muestra 40 px;
- * rappasoft la redibuja en cada filtro, busqueda o pagina. Se reduce una vez a
- * 96 px con GD y queda en disco.
+ * La foto completa es de hasta 1280 px (100-300 KB) y la tabla muestra 40 px
+ * (80 en el desplegable del celular); rappasoft la redibuja en cada filtro,
+ * busqueda o pagina. Se reduce una vez a 160 px con GD (nitida a 80 px en una
+ * pantalla 2x) y queda en disco.
  *
  * Cache eterno: una imagen no se edita nunca (editar fotos borra filas y crea
  * otras), asi que su id identifica siempre los mismos bytes.
  */
 class ProductoMiniaturaController extends Controller
 {
-    public const LADO = 96;
+    public const LADO = 160;
 
+    /**
+     * El lado va en el nombre del archivo y en la URL: el navegador guarda la
+     * miniatura como inmutable, y cambiar LADO sin cambiar la URL dejaria la vieja.
+     */
     public static function ruta(int $imagenId): string
     {
-        return storage_path("app/miniaturas/{$imagenId}.jpg");
+        return storage_path("app/miniaturas/{$imagenId}-" . self::LADO . '.jpg');
     }
 
     /**
-     * La celda «Foto» de las tablas: la miniatura, o un icono si el equipo no
-     * tiene fotos. Una sola copia para Productos y la compra.
+     * La celda «Foto» de las tablas: la miniatura, que abre el visor de fotos
+     * (ProductoFotosModal), o un icono si el equipo no tiene fotos. Una sola copia
+     * para Productos y la compra.
+     *
+     * Por debajo de lg la columna va en el desplegable (collapseOnTablet), que
+     * pinta este mismo HTML: de ahi las clases responsivas, 80 px alli y 40 px en
+     * la celda de escritorio.
      */
-    public static function html(?int $imagenId): string
+    public static function html(?int $imagenId, int $productoId): string
     {
         if (!$imagenId) {
-            return '<span class="flex h-10 w-10 items-center justify-center rounded-md bg-gray-100 text-gray-400 dark:bg-gray-700"><i class="fa-solid fa-mobile-screen"></i></span>';
+            return '<span class="inline-flex h-20 w-20 lg:h-10 lg:w-10 items-center justify-center rounded-md bg-gray-100 text-gray-400 align-middle dark:bg-gray-700"><i class="fa-solid fa-mobile-screen"></i></span>';
         }
 
-        return '<img src="' . e(route('productos.miniatura', $imagenId)) . '" loading="lazy" alt="" class="h-10 w-10 rounded-md object-cover">';
+        return '<button type="button" title="Ver fotos" class="inline-block align-middle cursor-pointer rounded-md hover:opacity-80" '
+            . 'wire:click="$dispatch(\'openProductoFotosModal\', { id: ' . $productoId . ' })">'
+            . '<img src="' . e(route('productos.miniatura', ['imagen' => $imagenId, 'l' => self::LADO])) . '" loading="lazy" alt="" class="h-20 w-20 lg:h-10 lg:w-10 rounded-md object-cover">'
+            . '</button>';
     }
 
     /** El id de la primera foto de cada equipo, como subconsulta del builder (sin N+1). */

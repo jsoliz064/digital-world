@@ -87,15 +87,17 @@ class CompraLoteTable extends DataTableComponent
             Column::make("ID", "id")
                 ->sortable(),
             Column::make("Foto")
-                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id))
-                ->html(),
+                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id, $row->id))
+                ->html()
+                ->collapseOnTablet(),
             Column::make("Modelo", "modelo.nombre")
                 ->sortable()
                 ->searchable(),
             Column::make("Capacidad", "almacenamiento")
                 ->sortable(),
             Column::make("Version", "version")
-                ->sortable(),
+                ->sortable()
+                ->collapseOnTablet(),
             // IMEI parcial; SKU y UPC exactos, que es lo que lee la pistola.
             Column::make("Imei", "imei")
                 ->sortable()
@@ -107,9 +109,11 @@ class CompraLoteTable extends DataTableComponent
                 ->sortable()
                 ->format(function ($value) {
                     return $value . '%';
-                }),
+                })
+                ->collapseOnTablet(),
             Column::make("Color", "color")
-                ->sortable(),
+                ->sortable()
+                ->collapseOnTablet(),
             Column::make("Estado", "estado")
                 ->sortable()
                 ->format(function ($value, $row) {
@@ -127,29 +131,36 @@ class CompraLoteTable extends DataTableComponent
                 }),
             Column::make("Grado", "estado_grado")
                 ->sortable()
-                ->format(fn($value) => \App\Enums\ProductoGrado::labelDe($value)),
+                ->format(fn($value) => \App\Enums\ProductoGrado::labelDe($value))
+                ->collapseOnTablet(),
             // En Bs; si se compro en dolares, debajo los USD y su tipo de cambio.
             Column::make("Costo", "costo_total")
                 ->sortable()
                 ->format(fn($value, $row) => 'Bs ' . number_format((float) $value, 2)
                     . ($row->costo_moneda === \App\Enums\Moneda::USD->value
                         ? '<span class="block text-xs text-gray-500">' . e($row->costoEnMoneda()) . '</span>' : ''))
-                ->html(),
+                ->html()
+                ->collapseOnTablet(),
             Column::make("Precio V.", "precio_vendedor")
                 ->sortable()
-                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2))
+                ->collapseOnTablet(),
             Column::make("Precio C.", "precio_cliente")
                 ->sortable()
-                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2)),
+                ->format(fn($value) => 'Bs ' . number_format((float) $value, 2))
+                ->collapseOnTablet(),
             Column::make("Registrado", "created_at")
-                ->sortable(),
+                ->sortable()
+                ->collapseOnTablet(),
             Column::make("Sucursal", "sucursal.nombre")
-                ->sortable(),
+                ->sortable()
+                ->collapseOnTablet(),
             Column::make("Fecha Venta.", "id")
                 ->sortable()
                 ->format(function ($value, $row) {
                     return $row->ventaDetalle ? $row->ventaDetalle->created_at->format('d/m/Y') : '-';
-                }),
+                })
+                ->collapseOnTablet(),
             Column::make('Acciones', 'id')
                 ->format(function ($value, $row, Column $column) {
                     return view('livewire.compra-lote.actions-buttons', [
