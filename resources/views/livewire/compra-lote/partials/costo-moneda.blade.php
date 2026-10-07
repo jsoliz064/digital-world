@@ -25,7 +25,7 @@
                 <span class="text-xs text-gray-500">USD</span>
             </div>
             <div>
-                <x-input wire:model.live.debounce.400ms="{{ $mTc }}" type="number" step="0.0001" min="0" inputmode="decimal"
+                <x-input wire:model.live.debounce.400ms="{{ $mTc }}" type="number" step="0.01" min="0" inputmode="decimal"
                     class="block w-full h-10" onfocus="this.select()" placeholder="T/C" :disabled="$bloqueado" />
                 <span class="text-xs text-gray-500">Tipo de cambio</span>
             </div>

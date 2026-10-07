@@ -51,7 +51,8 @@ class Producto extends Model
     {
         $ultimo = self::whereNotNull('costo_tipo_cambio')->latest('id')->value('costo_tipo_cambio');
 
-        return $ultimo ? (float) $ultimo : \App\Services\PagoService::ultimoTipoCambio();
+        // 2 decimales: el de un pago en USD admite 4, y el input del costo no.
+        return round($ultimo ? (float) $ultimo : \App\Services\PagoService::ultimoTipoCambio(), 2);
     }
 
     /** El costo como se cargo: «USD 300,00 × 6,96» o «Bs 2.088,00». */
@@ -59,7 +60,7 @@ class Producto extends Model
     {
         if ($this->costo_moneda === Moneda::USD->value) {
             return 'USD ' . number_format((float) $this->costo_moneda_monto, 2, ',', '.')
-                . ' × ' . rtrim(rtrim(number_format((float) $this->costo_tipo_cambio, 4, ',', '.'), '0'), ',');
+                . ' × ' . number_format((float) $this->costo_tipo_cambio, 2, ',', '.');
         }
 
         return 'Bs ' . number_format((float) $this->costo_unidad, 2, ',', '.');

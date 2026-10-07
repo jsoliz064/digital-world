@@ -59,6 +59,10 @@ class CompraLoteProductoEditModal extends Component
         $producto = Producto::with(['modelo', 'modelo.almacenamientos', 'imagenes',])->find($id);
         $this->producto = $producto->toArray();
         $this->producto['nombre'] = $producto->modelo->nombre;
+        // La columna guarda 4 decimales ("6.9600"): en pantalla, 2.
+        if ($this->producto['costo_tipo_cambio'] !== null) {
+            $this->producto['costo_tipo_cambio'] = round((float) $this->producto['costo_tipo_cambio'], 2);
+        }
         $this->enBorrador = $producto->estado === ProductoEstado::EnCompra->value;
         $this->producto['status'] = $this->enBorrador
             ? ($producto->compraDetalle?->estado_destino ?? ProductoEstado::Inventario->value)
@@ -86,7 +90,7 @@ class CompraLoteProductoEditModal extends Component
 
         if ($key === 'costo_moneda' && $value === Moneda::USD->value) {
             // Pasar a USD propone el tipo de cambio y los dolares del costo actual.
-            $tc = (float) ($this->producto['costo_tipo_cambio'] ?? 0) ?: Producto::tipoCambioSugerido();
+            $tc = round((float) ($this->producto['costo_tipo_cambio'] ?? 0), 2) ?: Producto::tipoCambioSugerido();
             $this->producto['costo_tipo_cambio'] = $tc;
             if (!(float) ($this->producto['costo_moneda_monto'] ?? 0)) {
                 $this->producto['costo_moneda_monto'] = round((float) $this->producto['costo_unidad'] / $tc, 2);
@@ -139,7 +143,7 @@ class CompraLoteProductoEditModal extends Component
             'producto.costo_unidad' => 'required|numeric|min:0',
             'producto.costo_moneda' => ['required', Rule::in(Moneda::values())],
             'producto.costo_moneda_monto' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
-            'producto.costo_tipo_cambio' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
+            'producto.costo_tipo_cambio' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0|decimal:0,2' : 'nullable',
             'producto.sku' => ['nullable', 'string', 'max:50', Rule::unique('productos', 'sku')->ignore($this->producto['id'] ?? null)],
             'producto.upc' => 'nullable|string|max:50',
             'producto.tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
@@ -164,6 +168,7 @@ class CompraLoteProductoEditModal extends Component
             'producto.estado_grado' => ['required', Rule::in(ProductoGrado::values())],
         ], [
             'producto.sku.unique' => 'Ese SKU ya lo tiene otro equipo.',
+            'producto.costo_tipo_cambio.decimal' => 'El tipo de cambio debe tener máximo 2 decimales.',
         ]);
 
         $estados = app(EstadoProductoService::class);
