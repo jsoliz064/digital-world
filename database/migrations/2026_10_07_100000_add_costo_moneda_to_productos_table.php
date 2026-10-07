@@ -19,7 +19,7 @@ return new class extends Migration
         Schema::table('productos', function (Blueprint $table) {
             $table->enum('costo_moneda', Moneda::values())->default(Moneda::BOB->value)->after('costo_unidad');
             $table->decimal('costo_moneda_monto', 10, 2)->nullable()->after('costo_moneda');
-            $table->decimal('costo_tipo_cambio', 10, 4)->nullable()->after('costo_moneda_monto');
+            $table->decimal('costo_tipo_cambio', 10, 2)->nullable()->after('costo_moneda_monto');
         });
 
         // En Bs, sin dolares ni tipo de cambio; en USD, los dos. El IS NOT NULL
