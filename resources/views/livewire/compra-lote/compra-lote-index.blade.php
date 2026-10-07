@@ -141,6 +141,7 @@
     @livewire('compra-lote.modals.compra-lote-producto-edit-modal')
     @livewire('compra-lote.modals.compra-lote-producto-destroy-modal')
     @livewire('producto.modals.producto-estado-modal')
+    @livewire('producto.modals.producto-fotos-modal')
     @livewire('producto.modals.producto-estado-masivo-modal')
     @livewire('compra.modals.reclamo-abrir-modal')
     @livewire('compra.modals.reclamo-cerrar-modal')

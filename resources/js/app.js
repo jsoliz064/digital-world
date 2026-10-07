@@ -360,6 +360,54 @@ document.addEventListener('alpine:init', () => {
         }
     };
 
+    // El visor de las fotos de un equipo (ProductoFotosModal), que abre la
+    // miniatura de las tablas. Solo mira: flechas, deslizar con el dedo, el
+    // teclado y la tira de miniaturas. Cerrar lo decide el componente.
+    window.Alpine.data('visorFotos', (fotos) => ({
+        fotos,
+        actual: 0,
+        inicioX: null,
+
+        init() {
+            // El fondo no se desplaza debajo del visor.
+            document.body.classList.add('overflow-hidden');
+        },
+
+        destroy() {
+            document.body.classList.remove('overflow-hidden');
+        },
+
+        ir(i) {
+            const n = this.fotos.length;
+            this.actual = ((i % n) + n) % n;
+            // querySelectorAll y no children: el primer hijo de la tira es el <template> del x-for.
+            this.$refs.tira?.querySelectorAll('button')[this.actual]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+        },
+
+        siguiente() {
+            this.ir(this.actual + 1);
+        },
+
+        anterior() {
+            this.ir(this.actual - 1);
+        },
+
+        tocar(e) {
+            this.inicioX = e.changedTouches[0].clientX;
+        },
+
+        soltar(e) {
+            if (this.inicioX === null) {
+                return;
+            }
+            const dx = e.changedTouches[0].clientX - this.inicioX;
+            this.inicioX = null;
+            if (Math.abs(dx) > 50) {
+                dx < 0 ? this.siguiente() : this.anterior();
+            }
+        },
+    }));
+
     // Compartir el recibo PDF de una venta (detalle de la venta). En el celular
     // abre el menu de compartir con el PDF adjunto: el vendedor elige WhatsApp y
     // el contacto. Donde no se pueden compartir archivos (la PC), descarga el
