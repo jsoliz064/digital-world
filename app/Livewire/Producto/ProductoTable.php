@@ -63,6 +63,9 @@ class ProductoTable extends DataTableComponent
         $bs = fn($value) => 'Bs ' . number_format((float) $value, 2);
 
         return [
+            Column::make("Foto")
+                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id))
+                ->html(),
             Column::make("Modelo", "modelo.nombre")
                 ->sortable()
                 ->searchable(),
@@ -292,6 +295,7 @@ class ProductoTable extends DataTableComponent
     public function builder(): Builder
     {
         return Producto::query()
+            ->addSelect(['primera_imagen_id' => \App\Http\Controllers\ProductoMiniaturaController::subconsultaPrimera()])
             // La compra y la venta salen de sus lineas: cargadas de una vez,
             // sin un find por fila.
             ->with(['compraDetalle.compra.proveedor', 'ventaDetalle', 'permuta'])

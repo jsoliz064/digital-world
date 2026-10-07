@@ -146,6 +146,12 @@ Route::middleware([
             ->whereNumber('id')
             ->middleware('can:producto.historial')
             ->name('productos.historial');
+
+        // La miniatura de una foto, para las tablas. Sin permiso de modulo: la
+        // usan Productos y el detalle de la compra, y el catalogo ya es publico.
+        Route::get('imagenes/{imagen}/miniatura', \App\Http\Controllers\ProductoMiniaturaController::class)
+            ->whereNumber('imagen')
+            ->name('productos.miniatura');
     });
 
     // Repuestos y accesorios: dos tablas distintas (`repuestos`, `accesorios`)

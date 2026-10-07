@@ -128,7 +128,8 @@ class PermutaService
             ]);
         }
 
-        $producto->imagenes()->delete();
+        // Por Eloquent: el evento deleted borra cada miniatura.
+        $producto->imagenes()->get()->each->delete();
         $producto->delete();
     }
 }

@@ -86,6 +86,9 @@ class CompraLoteTable extends DataTableComponent
 
             Column::make("ID", "id")
                 ->sortable(),
+            Column::make("Foto")
+                ->label(fn($row) => \App\Http\Controllers\ProductoMiniaturaController::html($row->primera_imagen_id))
+                ->html(),
             Column::make("Modelo", "modelo.nombre")
                 ->sortable()
                 ->searchable(),
@@ -200,6 +203,7 @@ class CompraLoteTable extends DataTableComponent
 
         // Los equipos de la compra, por su linea (productos ya no tiene compra_id).
         return Producto::query()
+            ->addSelect(['primera_imagen_id' => \App\Http\Controllers\ProductoMiniaturaController::subconsultaPrimera()])
             ->with('ventaDetalle')
             ->whereHas('compraDetalle', fn($q) => $q->where('compra_id', $this->compraId))
             ->orderBy('productos.created_at', 'desc');

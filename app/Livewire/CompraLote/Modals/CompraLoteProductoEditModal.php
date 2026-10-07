@@ -215,7 +215,8 @@ class CompraLoteProductoEditModal extends Component
             ]);
 
             if (!empty($this->photosToDelete)) {
-                ProductoImagen::whereIn('id', $this->photosToDelete)->delete();
+                // Por Eloquent y no por query builder: el evento deleted borra su miniatura.
+                ProductoImagen::whereIn('id', $this->photosToDelete)->get()->each->delete();
             }
 
             $existingPhotos = $product->imagenes->pluck('base64', 'id')->toArray();

@@ -352,7 +352,8 @@ class CompraService
         $compra = $producto->compra;
 
         $producto->compraDetalle()->delete();
-        $producto->imagenes()->delete();
+        // Por Eloquent: el evento deleted borra cada miniatura.
+        $producto->imagenes()->get()->each->delete();
         $producto->delete();
 
         $compra?->recalcularTotal();

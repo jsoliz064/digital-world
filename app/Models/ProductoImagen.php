@@ -10,4 +10,12 @@ class ProductoImagen extends Model
     protected $guarded = ['id'];
 
     protected $fillable = ['base64', 'producto_id'];
+
+    /** Su miniatura de las tablas (ProductoMiniaturaController) se va con ella. */
+    protected static function booted(): void
+    {
+        static::deleted(function (ProductoImagen $imagen) {
+            @unlink(\App\Http\Controllers\ProductoMiniaturaController::ruta($imagen->id));
+        });
+    }
 }
