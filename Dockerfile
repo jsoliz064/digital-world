@@ -1,7 +1,11 @@
 FROM php:8.4-fpm
 
 # Instalamos las extensiones de PHP necesarias
+# GD con JPEG y WEBP: sin el configure, la imagen oficial compila GD solo con
+# PNG, y las fotos del equipo (JPEG) no se podian reducir ni hacer miniatura.
 RUN apt-get update && apt-get install -y libpq-dev libzip-dev libgd-dev \
+        libjpeg62-turbo-dev libpng-dev libwebp-dev libfreetype6-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
     && docker-php-ext-install pdo pdo_mysql bcmath zip gd
 
 # Instalamos Node.js (en la versión 14.x, puedes cambiar la versión si lo prefieres)
