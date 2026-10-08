@@ -264,5 +264,10 @@ Route::middleware([
 
 Route::get('catalogo', [CatalogoController::class, 'index'])->name('catalogo');
 
+// La foto de un equipo, publica como el catalogo que la muestra. Ver ProductoFotoController.
+Route::get('productos/fotos/{imagen}', \App\Http\Controllers\ProductoFotoController::class)
+    ->whereNumber('imagen')
+    ->name('productos.foto');
+
 // Los terminos de garantia, publicos: a esta pagina lleva el QR de la nota.
 Route::view('garantia', 'garantia')->name('garantia');

@@ -93,13 +93,13 @@ class ProductoImagen extends Model
     }
 
     /**
-     * asset() y no Storage::url(): el disco arma la URL con APP_URL, y quien entra
-     * por otra direccion (127.0.0.1:8000, la IP del local desde el celular) veia
-     * la foto rota. asset() usa la del pedido, como route() en la miniatura.
+     * Por la ruta de Laravel (ProductoFotoController), no por /storage: en
+     * produccion el servidor web no llegaba al enlace public/storage. route()
+     * usa ademas la direccion del pedido, no APP_URL.
      */
     public function url(): string
     {
-        return asset('storage/' . $this->ruta);
+        return route('productos.foto', $this->id);
     }
 
     public function contenido(): ?string
