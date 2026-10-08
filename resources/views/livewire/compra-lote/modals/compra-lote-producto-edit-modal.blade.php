@@ -264,6 +264,8 @@
                                     </svg>
                                     Tomar Fotos
                                 </button>
+                                <x-input-error for="fotoNueva" class="mt-1" />
+                                <x-input-error for="fotos" class="mt-1" />
 
                                 @if (count($vistaFotos) > 0)
                                     <div class="animate-fade-in mt-4" x-data="photoCarousel()"

@@ -42,10 +42,33 @@ class ProductoImagen extends Model
      */
     public static function guardar(Producto $producto, UploadedFile $archivo): self
     {
-        $origen = @imagecreatefromstring((string) file_get_contents($archivo->getRealPath()));
+        $ruta = "productos/{$producto->id}/" . Str::uuid() . '.jpg';
+        Storage::disk(self::DISCO)->put($ruta, self::comoJpeg($archivo));
+
+        return self::create(['producto_id' => $producto->id, 'ruta' => $ruta]);
+    }
+
+    /**
+     * Un JPEG que ya cabe (todo lo que entrega la camara) se guarda tal cual:
+     * getimagesize() no necesita GD. Solo lo demas pasa por GD. En produccion GD
+     * se compilo sin JPEG, imagecreatefromstring() devolvia false y ninguna foto
+     * dejaba guardar el equipo (el error no se veia en el modal).
+     */
+    private static function comoJpeg(UploadedFile $archivo): string
+    {
+        $contenido = (string) file_get_contents($archivo->getRealPath());
+        $info = @getimagesizefromstring($contenido);
+
+        if ($info && $info[2] === IMAGETYPE_JPEG && max($info[0], $info[1]) <= self::LADO_MAXIMO) {
+            return $contenido;
+        }
+
+        $origen = @imagecreatefromstring($contenido);
 
         if ($origen === false) {
-            throw ValidationException::withMessages(['fotos' => 'La foto no es una imagen válida.']);
+            throw ValidationException::withMessages(['fotos' => $info
+                ? 'El servidor no pudo procesar esta foto (falta soporte de imágenes). Sácala con el botón «Tomar Fotos» o avisa al administrador.'
+                : 'La foto no es una imagen válida.']);
         }
 
         $ancho = imagesx($origen);
@@ -66,10 +89,7 @@ class ProductoImagen extends Model
             imagedestroy($destino);
         }
 
-        $ruta = "productos/{$producto->id}/" . Str::uuid() . '.jpg';
-        Storage::disk(self::DISCO)->put($ruta, $jpeg);
-
-        return self::create(['producto_id' => $producto->id, 'ruta' => $ruta]);
+        return $jpeg;
     }
 
     /**

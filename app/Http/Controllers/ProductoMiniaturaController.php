@@ -65,7 +65,12 @@ class ProductoMiniaturaController extends Controller
             $contenido = $foto?->contenido();
             abort_if($contenido === null, 404);
 
-            $this->generar($contenido, $ruta);
+            // Sin GD con JPEG (le pasaba a produccion) la miniatura no se puede
+            // hacer: se sirve la foto entera, sin el cache eterno, para que la
+            // tabla no muestre una imagen rota y la reduzca cuando GD funcione.
+            if (!$this->generar($contenido, $ruta)) {
+                return response($contenido, 200, ['Content-Type' => 'image/jpeg', 'Cache-Control' => 'private, no-cache']);
+            }
         }
 
         // setPrivate(): BinaryFileResponse se marca public sola, y va detras del login.
@@ -76,10 +81,12 @@ class ProductoMiniaturaController extends Controller
     }
 
     /** Recorta al centro en cuadrado y la reduce a LADO x LADO. */
-    private function generar(string $contenido, string $ruta): void
+    private function generar(string $contenido, string $ruta): bool
     {
         $origen = @imagecreatefromstring($contenido);
-        abort_if($origen === false, 404);
+        if ($origen === false) {
+            return false;
+        }
 
         $ancho = imagesx($origen);
         $alto = imagesy($origen);
@@ -95,5 +102,7 @@ class ProductoMiniaturaController extends Controller
         imagejpeg($mini, $ruta, 80);
         imagedestroy($origen);
         imagedestroy($mini);
+
+        return true;
     }
 }
