@@ -39,6 +39,8 @@ enum BitacoraEvento: string
     case PagoAnulado = 'pago-anulado';
     // La compra dejo de ser borrador: su stock entro y sus equipos se liberaron.
     case Finalizada = 'finalizada';
+    // El equipo paso a otra compra (CompraService::moverProducto): se corrigio su origen.
+    case CompraCambiada = 'compra-cambiada';
 
     public function label(): string
     {
@@ -59,6 +61,7 @@ enum BitacoraEvento: string
             self::Pago => 'Pago recibido',
             self::PagoAnulado => 'Pago anulado',
             self::Finalizada => 'Compra finalizada',
+            self::CompraCambiada => 'Compra cambiada',
         };
     }
 
@@ -82,6 +85,7 @@ enum BitacoraEvento: string
             self::Pago => 'bg-teal-100 text-teal-800',
             self::PagoAnulado => 'bg-rose-100 text-rose-800',
             self::Finalizada => 'bg-emerald-100 text-emerald-800',
+            self::CompraCambiada => 'bg-indigo-100 text-indigo-800',
         };
     }
 

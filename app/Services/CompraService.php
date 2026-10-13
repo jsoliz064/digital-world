@@ -360,6 +360,118 @@ class CompraService
     }
 
     /**
+     * Por que no se puede pasar el equipo a otra compra (o a $destino), o null.
+     * La pantalla lo muestra antes de elegir y moverProducto() lo vuelve a
+     * preguntar dentro de la transaccion.
+     */
+    public function motivoNoMovible(Producto $producto, ?Compra $destino = null): ?string
+    {
+        $detalle = $producto->compraDetalle;
+
+        if (!$detalle) {
+            return $producto->permuta
+                ? "El equipo {$producto->imei} se recibió en permuta (venta #{$producto->permuta->venta_id}): no tiene compra que cambiar."
+                : "El equipo {$producto->imei} no tiene compra.";
+        }
+
+        // En reclamo, o reemplazo de un reclamo: el tramite es de ESA compra.
+        if (\App\Models\CompraReclamo::where('producto_id', $producto->id)->orWhere('producto_reemplazo_id', $producto->id)->exists()) {
+            return "El equipo {$producto->imei} tiene un reclamo al proveedor (o es el reemplazo de uno): no se puede cambiar de compra.";
+        }
+
+        if (!$destino) {
+            return null;
+        }
+
+        if ($destino->id === $detalle->compra_id) {
+            return "El equipo ya está en la compra #{$destino->id}.";
+        }
+
+        // De una finalizada a un borrador el equipo vuelve a EnCompra, y un
+        // equipo En compra no se vendio, ni se reparo, ni regalo nada.
+        if (!$detalle->compra->esBorrador() && $destino->esBorrador()) {
+            if ($producto->estaDadoDeBaja()) {
+                return "El equipo {$producto->imei} está dado de baja: no puede volver a una compra en borrador.";
+            }
+            if (!in_array($producto->estado, self::estadosDestinoBorrador(), true)) {
+                return "El equipo {$producto->imei} está en " . ProductoEstado::labelDe($producto->estado)
+                    . ': solo uno en Inventario, Fuera o Roto puede volver a una compra en borrador.';
+            }
+            if ($producto->ventaDetalle()->exists() || $producto->reparaciones()->exists() || $producto->regalos()->exists()) {
+                return "El equipo {$producto->imei} ya tiene ventas, reparaciones o regalos: no puede volver a una compra en borrador.";
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Corrige el origen de un equipo: su linea pasa a otra compra (la linea es
+     * la unica verdad de que compra trajo el equipo; no existe productos.compra_id).
+     * Conserva su costo y su sucursal congelada, y recalcula las dos compras.
+     *
+     * Si cruza entre borrador y finalizada, el estado acompana: al pasar a una
+     * finalizada el equipo sale de EnCompra a su estado elegido (como en
+     * finalizar()); al volver a un borrador queda En compra y la linea recuerda
+     * su estado para devolverselo al finalizar.
+     *
+     * La compra finalizada que queda vacia se elimina (el auditor la marcaria);
+     * no puede tener pagos: recalcularTotal() no deja bajar el total de lo pagado.
+     *
+     * El componente bloquea las dos compras por id antes de llamar.
+     *
+     * @return Compra la compra de origen
+     */
+    public function moverProducto(Producto $producto, Compra $destino): Compra
+    {
+        $producto = Producto::lockForUpdate()->findOrFail($producto->id);
+
+        if ($motivo = $this->motivoNoMovible($producto, $destino)) {
+            throw ValidationException::withMessages(['compra' => $motivo]);
+        }
+
+        $detalle = $producto->compraDetalle;
+        $origen = $detalle->compra;
+        $estados = app(EstadoProductoService::class);
+        $estadoDestino = $detalle->estado_destino;
+
+        if ($origen->esBorrador() && !$destino->esBorrador()) {
+            $estado = ProductoEstado::tryFrom((string) $estadoDestino) ?? ProductoEstado::Inventario;
+            $estados->cambiar($producto->id, ProductoEstado::EnCompra, $estado,
+                "Pasa a la compra #{$destino->id}, ya finalizada: el equipo queda en {$estado->label()}", ['compra_id' => $destino->id]);
+            $estadoDestino = null;
+        } elseif (!$origen->esBorrador() && $destino->esBorrador()) {
+            $actual = ProductoEstado::from($producto->estado);
+            $estados->cambiar($producto->id, $actual, ProductoEstado::EnCompra,
+                "Pasa a la compra #{$destino->id}, en borrador: no se vende hasta finalizarla", ['compra_id' => $destino->id]);
+            $estadoDestino = $actual->value;
+        }
+
+        $detalle->update(['compra_id' => $destino->id, 'estado_destino' => $estadoDestino]);
+
+        $origen->recalcularTotal();
+        $destino->recalcularTotal();
+
+        $costo = 'Bs ' . number_format((float) $detalle->costo, 2);
+        $de = "#{$origen->id} ({$origen->proveedor?->nombre})";
+        $a = "#{$destino->id} ({$destino->proveedor?->nombre})";
+
+        // La linea no es Auditable: el hecho se anota en el equipo y en las dos compras.
+        Bitacora::registrar($producto, BitacoraEvento::CompraCambiada->value,
+            "Compra corregida: de la {$de} a la {$a}", ['compra_id' => $destino->id], ['compra_id' => [$origen->id, $destino->id]]);
+        Bitacora::registrar($destino, BitacoraEvento::CompraCambiada->value,
+            "Entra el equipo {$producto->imei} desde la compra {$de}, {$costo}", ['compra_id' => $destino->id]);
+        Bitacora::registrar($origen, BitacoraEvento::CompraCambiada->value,
+            "Sale el equipo {$producto->imei} a la compra {$a}, {$costo}", ['compra_id' => $origen->id]);
+
+        if (!$origen->esBorrador() && $origen->detalles()->doesntExist()) {
+            $origen->delete();
+        }
+
+        return $origen;
+    }
+
+    /**
      * Elimina una compra. En borrador se va entera, equipos incluidos: estan en
      * EnCompra y no pudieron venderse, repararse ni regalarse, y su stock nunca
      * entro. Finalizada, solo sin equipos (cada equipo se quita antes, con sus
