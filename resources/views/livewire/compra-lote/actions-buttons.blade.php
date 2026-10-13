@@ -10,6 +10,13 @@
                 Editar
             </button>
         @endcan
+        @can('compra.edit')
+            {{-- Se cargo en la compra equivocada: pasa a otra sin borrar el equipo (ProductoCompraModal). --}}
+            <button wire:click="$dispatch('openProductoCompraModal', { id: {{ $row->id }}, cambiar: true })"
+                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
+                Cambiar de compra
+            </button>
+        @endcan
         {{-- Fallado de fabrica: se reclama al proveedor (ReclamoService). --}}
         @if (in_array($row->estado, ['Inventario', 'Roto'], true) && !$row->dado_de_baja_at)
             @can('compra.reclamo')

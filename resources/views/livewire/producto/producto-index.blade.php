@@ -104,6 +104,7 @@
     </div>
     @livewire('producto.modals.producto-estado-modal')
     @livewire('producto.modals.producto-fotos-modal')
+    @livewire('producto.modals.producto-compra-modal')
     @livewire('cliente.modals.cliente-selector-modal')
 @livewire('cliente.modals.cliente-create-modal')
     @livewire('compra-lote.modals.compra-lote-producto-edit-modal')

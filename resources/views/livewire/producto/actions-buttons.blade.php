@@ -20,6 +20,13 @@
                 </button>
             @endcan
         @endif
+        @canany(['compra.detalle', 'compra.edit'])
+            {{-- A quien se le compro, y pasarlo a otra compra si se cargo mal (ProductoCompraModal). --}}
+            <button wire:click="$dispatch('openProductoCompraModal', { id: {{ $row->id }} })"
+                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
+                Ver compra
+            </button>
+        @endcanany
         @can('producto.regalos')
             <button wire:click="openProductoRegalosModal({{ $row->id }})"
                 class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left">
