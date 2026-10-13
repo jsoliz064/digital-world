@@ -201,10 +201,8 @@
                         <div class="animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <x-label for="sku" value="SKU (opcional)" />
-                                <div class="mt-2 flex gap-2" data-escaner>
-                                    <x-input wire:model="producto.sku" id="sku" type="text" class="block w-full h-10" x-on:keydown.enter.prevent="" />
-                                    <x-boton-escaner modo="input" />
-                                </div>
+                                {{-- Texto libre y repetible: sin camara, no es un codigo de barras. --}}
+                                <x-input wire:model="producto.sku" id="sku" type="text" class="mt-2 block w-full h-10" placeholder="Texto libre" x-on:keydown.enter.prevent="" />
                                 <x-input-error for="producto.sku" class="mt-1" />
                             </div>
                             <div>

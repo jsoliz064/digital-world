@@ -72,11 +72,9 @@
                             ])
                             <div>
                                 <x-label for="sku" value="SKU (opcional)" />
-                                <div class="mt-2 flex gap-2" data-escaner>
-                                    <x-input wire:model="sku" id="sku" type="text" class="block w-full h-10" placeholder="Código interno"
-                                        x-on:keydown.enter.prevent="$el.closest('.jetstream-modal')?.querySelector('#upc')?.focus()" />
-                                    <x-boton-escaner modo="input" />
-                                </div>
+                                {{-- Texto libre y repetible: sin camara, no es un codigo de barras. --}}
+                                <x-input wire:model="sku" id="sku" type="text" class="mt-2 block w-full h-10" placeholder="Texto libre"
+                                    x-on:keydown.enter.prevent="$el.closest('.jetstream-modal')?.querySelector('#upc')?.focus()" />
                                 <x-input-error for="sku" class="mt-1" />
                             </div>
                             <div>
