@@ -117,8 +117,10 @@ class CompraLoteAddModelModal extends Component
             'costo_moneda' => ['required', Rule::in(Moneda::values())],
             'costo_usd' => $this->costo_moneda === Moneda::USD->value ? 'required|numeric|gt:0|decimal:0,2' : 'nullable',
             'tipo_cambio' => $this->costo_moneda === Moneda::USD->value ? 'required|numeric|gt:0|decimal:0,2' : 'nullable',
-            'precio_cliente' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
-            'precio_vendedor' => 'required|numeric|min:0|decimal:0,2|gte:costo_unidad',
+            // Sin gte:costo_unidad: un equipo puede salir por debajo del costo
+            // (remate de los viejos). La pantalla avisa, no bloquea.
+            'precio_cliente' => 'required|numeric|min:0|decimal:0,2',
+            'precio_vendedor' => 'required|numeric|min:0|decimal:0,2',
             'descripcion' => 'nullable|string',
             'disponible_catalogo' => 'required',
             'estado_grado' => ['required', Rule::in(ProductoGrado::values())],
@@ -139,7 +141,6 @@ class CompraLoteAddModelModal extends Component
             'min' => 'El valor mínimo para :attribute es :min.',
             'max' => 'El valor máximo para :attribute es :max.',
             'decimal' => 'El campo :attribute debe tener máximo 2 decimales.',
-            'gte' => 'El precio debe ser mayor o igual al costo.',
             'almacenamiento.required' => 'Debe seleccionar un almacenamiento.',
             'color.required' => 'Debe seleccionar un color.',
             'estado_grado.required' => 'Debe seleccionar el grado.',

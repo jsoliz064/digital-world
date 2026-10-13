@@ -96,6 +96,10 @@
                                        focus:border-brand-500 focus:ring-brand-500"
                                     onfocus="this.select()" placeholder="0.00" />
                                 <x-input-error for="precio_vendedor" class="mt-1" />
+                                {{-- Avisa, no bloquea: se puede rematar por debajo del costo. Con $wire se ve mientras se escribe. --}}
+                                <p x-show="Number($wire.precio_vendedor) > 0 && Number($wire.precio_vendedor) < Number($wire.costo_unidad)" style="display: none"
+                                    class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                                    x-text="'Por debajo del costo (Bs ' + Number($wire.costo_unidad).toFixed(2) + '): se venderá con pérdida.'"></p>
                             </div>
                             <div>
                                 <x-label for="precio_cliente" value="Precio Cliente (Bs) *" />
@@ -104,6 +108,9 @@
                                        focus:border-brand-500 focus:ring-brand-500"
                                     onfocus="this.select()" placeholder="0.00" />
                                 <x-input-error for="precio_cliente" class="mt-1" />
+                                <p x-show="Number($wire.precio_cliente) > 0 && Number($wire.precio_cliente) < Number($wire.costo_unidad)" style="display: none"
+                                    class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                                    x-text="'Por debajo del costo (Bs ' + Number($wire.costo_unidad).toFixed(2) + '): se venderá con pérdida.'"></p>
                             </div>
                         </div>
 

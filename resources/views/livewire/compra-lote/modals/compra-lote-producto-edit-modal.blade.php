@@ -107,6 +107,11 @@
                                        focus:border-brand-500 focus:ring-brand-500"
                                     placeholder="0.00" />
                                 <x-input-error for="producto.precio_vendedor" class="mt-1" />
+                                {{-- Avisa, no bloquea: se puede rematar por debajo del costo total
+                                     (unidad + regalos + reparaciones). Con $wire se ve mientras se escribe. --}}
+                                <p x-show="Number($wire.producto.precio_vendedor) > 0 && Number($wire.producto.precio_vendedor) < Number($wire.producto.costo_unidad) + Number($wire.producto.costo_regalos) + Number($wire.producto.costo_reparacion)" style="display: none"
+                                    class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                                    x-text="'Por debajo del costo (Bs ' + (Number($wire.producto.costo_unidad) + Number($wire.producto.costo_regalos) + Number($wire.producto.costo_reparacion)).toFixed(2) + '): se venderá con pérdida.'"></p>
                             </div>
 
                             <div>
@@ -116,6 +121,9 @@
                                        focus:border-brand-500 focus:ring-brand-500"
                                     placeholder="0.00" />
                                 <x-input-error for="producto.precio_cliente" class="mt-1" />
+                                <p x-show="Number($wire.producto.precio_cliente) > 0 && Number($wire.producto.precio_cliente) < Number($wire.producto.costo_unidad) + Number($wire.producto.costo_regalos) + Number($wire.producto.costo_reparacion)" style="display: none"
+                                    class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                                    x-text="'Por debajo del costo (Bs ' + (Number($wire.producto.costo_unidad) + Number($wire.producto.costo_regalos) + Number($wire.producto.costo_reparacion)).toFixed(2) + '): se venderá con pérdida.'"></p>
                             </div>
 
                         </div>
