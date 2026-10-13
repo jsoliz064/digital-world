@@ -255,6 +255,7 @@ Una compra de 50 equipos no se carga en una sola pantalla sin perderla al primer
 
   Una tabla que pinta `estado()` con `label()` necesita `compras.finalizada_at` en `setAdditionalSelects`, o toda compra sale Borrador.
 - **Eliminar un borrador** lo borra entero, con sus equipos. Solo lo impiden los pagos.
+- **Cambiar la compra de un equipo** (se cargó en la equivocada) es `CompraService::moverProducto()`: mueve **la línea** (mismo id, costo y sucursal congelada), no el equipo, y recalcula las dos compras (totales y `pagada_at`). Los cuatro cruces: borrador→finalizada aplica su `estado_destino` (como `finalizar()`); finalizada→borrador lo devuelve a EnCompra guardando su estado en `estado_destino`, solo si está en Inventario/Fuera/Roto, sin baja, venta, reparaciones ni regalos. No se mueven reclamos (ni reemplazos) ni permutas; `motivoNoMovible()` da el porqué. La compra finalizada que queda vacía se elimina (no puede tener pagos: `recalcularTotal()` no baja el total de lo pagado). Pantalla: `ProductoCompraModal` (`openProductoCompraModal`), «Ver compra» en Productos (`compra.detalle`) y «Cambiar de compra» en el detalle (`compra.edit`).
 
 ### Cuentas por pagar y reclamos al proveedor
 
