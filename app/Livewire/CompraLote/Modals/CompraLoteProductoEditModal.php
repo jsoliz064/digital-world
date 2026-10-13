@@ -164,7 +164,8 @@ class CompraLoteProductoEditModal extends Component
             'producto.costo_moneda' => ['required', Rule::in(Moneda::values())],
             'producto.costo_moneda_monto' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0' : 'nullable',
             'producto.costo_tipo_cambio' => ($this->producto['costo_moneda'] ?? null) === Moneda::USD->value ? 'required|numeric|gt:0|decimal:0,2' : 'nullable',
-            'producto.sku' => ['nullable', 'string', 'max:50', Rule::unique('productos', 'sku')->ignore($this->producto['id'] ?? null)],
+            // Texto libre y repetible (2026_10_13_100000_sku_no_unico).
+            'producto.sku' => 'nullable|string|max:50',
             'producto.upc' => 'nullable|string|max:50',
             'producto.tipo_venta' => ['required', Rule::in(ProductoTipoVenta::values())],
             'producto.precio_cliente' => 'required|numeric|min:0',
@@ -187,7 +188,6 @@ class CompraLoteProductoEditModal extends Component
             'producto.sucursal_id' => 'required',
             'producto.estado_grado' => ['required', Rule::in(ProductoGrado::values())],
         ], [
-            'producto.sku.unique' => 'Ese SKU ya lo tiene otro equipo.',
             'producto.costo_tipo_cambio.decimal' => 'El tipo de cambio debe tener máximo 2 decimales.',
         ]);
 

@@ -6,9 +6,9 @@ namespace App\Traits;
  * Normaliza el SKU y el UPC de un articulo: sin espacios y NULL cuando vienen
  * vacios.
  *
- * Imprescindible por los UNIQUE de `sku`: en MySQL varios NULL conviven en un
- * indice unico, pero dos '' chocan. Sin esto, el segundo articulo guardado con
- * el campo SKU en blanco reventaria con 1062.
+ * Nacio por el UNIQUE de `sku` (dos '' chocaban con 1062). El SKU ya no es
+ * unico (2026_10_13_100000_sku_no_unico), pero vacio sigue siendo NULL: asi un
+ * codigo en blanco nunca coincide en los buscadores, que comparan sku = ?.
  */
 trait NormalizaCodigosTrait
 {

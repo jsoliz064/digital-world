@@ -109,7 +109,8 @@ class CompraLoteAddModelModal extends Component
             'color' => 'required',
             'version' => 'nullable',
             'imei' => 'required|string|min:1|max:20|unique:productos,imei',
-            'sku' => 'nullable|string|max:50|unique:productos,sku',
+            // Texto libre y repetible (2026_10_13_100000_sku_no_unico).
+            'sku' => 'nullable|string|max:50',
             'upc' => 'nullable|string|max:50',
             'bateria_porcentaje' => 'required|numeric|min:1|max:100',
             'costo_unidad' => 'required|numeric|min:0|decimal:0,2',
@@ -135,7 +136,6 @@ class CompraLoteAddModelModal extends Component
             'required' => 'El campo :attribute es obligatorio.',
             'numeric' => 'El campo :attribute debe ser numérico.',
             'imei.unique' => 'Este IMEI ya existe en el sistema.',
-            'sku.unique' => 'Ese SKU ya lo tiene otro equipo.',
             'min' => 'El valor mínimo para :attribute es :min.',
             'max' => 'El valor máximo para :attribute es :max.',
             'decimal' => 'El campo :attribute debe tener máximo 2 decimales.',
@@ -435,11 +435,6 @@ class CompraLoteAddModelModal extends Component
         } catch (QueryException $e) {
             if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'imei')) {
                 $this->addError('imei', "El IMEI {$this->imei} ya está registrado. Si acabas de guardarlo, revisa la lista antes de repetir.");
-
-                return null;
-            }
-            if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'sku')) {
-                $this->addError('sku', 'Ese SKU ya lo tiene otro equipo.');
 
                 return null;
             }

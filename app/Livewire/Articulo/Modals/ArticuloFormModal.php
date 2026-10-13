@@ -8,10 +8,8 @@ use App\Models\ProductoModelo;
 use App\Models\RepuestoCategoria;
 use App\Traits\ArticuloStockSucursalTrait;
 use App\Traits\NormalizaCodigosTrait;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -61,13 +59,10 @@ class ArticuloFormModal extends Component
 
     protected function rules(): array
     {
-        $tabla = $this->articuloTipo()->tabla();
-
         $reglas = [
             'articulo.nombre' => 'required|string|max:255',
-            // Unico en la base, y aqui tambien para dar el error en el campo. El
-            // indice es quien lo garantiza de verdad: de ahi el catch de guardar().
-            'articulo.sku' => ['nullable', 'string', 'max:50', Rule::unique($tabla, 'sku')->ignore($this->articuloId)],
+            // Texto libre y repetible (2026_10_13_100000_sku_no_unico).
+            'articulo.sku' => 'nullable|string|max:50',
             'articulo.upc' => 'nullable|string|max:50',
             'articulo.costo' => 'required|numeric|min:0',
             'articulo.precio' => 'required|numeric|min:0',
@@ -98,7 +93,6 @@ class ArticuloFormModal extends Component
     {
         return [
             'articulo.nombre.required' => 'Debe ingresar un nombre',
-            'articulo.sku.unique' => 'Ese SKU ya lo tiene otro artículo',
             'articulo.costo.required' => 'Debe ingresar el costo',
             'articulo.precio.required' => 'Debe ingresar el precio',
             'articulo.producto_modelo_id.required' => 'Debe seleccionar el modelo al que corresponde el repuesto',
@@ -146,7 +140,7 @@ class ArticuloFormModal extends Component
         $tipo = $this->articuloTipo();
         abort_unless(Auth::user()?->can($tipo->permiso() . ($this->articuloId ? '.edit' : '.create')), 403);
 
-        // Un SKU en blanco es NULL, antes de validar el unique.
+        // Un SKU en blanco es NULL, como en el modelo (NormalizaCodigosTrait).
         $this->articulo['sku'] = NormalizaCodigosTrait::normalizarCodigo($this->articulo['sku'] ?? null);
         $this->validate();
 
@@ -156,34 +150,22 @@ class ArticuloFormModal extends Component
 
         $datos = collect($campos)->mapWithKeys(fn($c) => [$c => ($this->articulo[$c] ?? null) === '' ? null : ($this->articulo[$c] ?? null)])->all();
 
-        try {
-            $articulo = DB::transaction(function () use ($tipo, $datos) {
-                $modelo = $tipo->modelo();
-                $articulo = $this->articuloId
-                    ? tap($modelo::findOrFail($this->articuloId))->update($datos)
-                    : $modelo::create($datos);
+        $articulo = DB::transaction(function () use ($tipo, $datos) {
+            $modelo = $tipo->modelo();
+            $articulo = $this->articuloId
+                ? tap($modelo::findOrFail($this->articuloId))->update($datos)
+                : $modelo::create($datos);
 
-                if (!$this->esRepuesto()) {
-                    $articulo->modelosCompatibles()->sync(array_map('intval', $this->modelos));
-                }
-
-                if ($this->conStock) {
-                    $this->guardarStockSucursales($articulo->id);
-                }
-
-                return $articulo;
-            });
-        } catch (QueryException $e) {
-            // El unique del SKU es la garantia real: dos pestanas a la vez pasan
-            // las dos la regla de validacion.
-            if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), '_sku_unico')) {
-                $this->addError('articulo.sku', 'Ese SKU ya lo tiene otro artículo.');
-
-                return;
+            if (!$this->esRepuesto()) {
+                $articulo->modelosCompatibles()->sync(array_map('intval', $this->modelos));
             }
 
-            throw $e;
-        }
+            if ($this->conStock) {
+                $this->guardarStockSucursales($articulo->id);
+            }
+
+            return $articulo;
+        });
 
         $creado = !$this->articuloId;
         $this->dispatch('refreshArticuloTable');
