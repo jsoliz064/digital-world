@@ -83,6 +83,14 @@
             </div>
         </button>
 
+        <button wire:click="$dispatch('openProductoResumenModal')"
+            class="my-2 inline-flex items-center px-3 py-1.5 text-sm font-medium
+           bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition"
+            title="Equipos en inventario por sucursal, para copiar a WhatsApp">
+            <i class="fas fa-clipboard-list mr-2"></i>
+            Resumen de inventario
+        </button>
+
         @can('producto.estado-masivo')
         <button wire:click="openProductoEstadoMasivoModal()" wire:loading.attr="disabled"
             class="my-2 inline-flex items-center px-3 py-1.5 text-sm font-medium 
@@ -105,6 +113,7 @@
     @livewire('producto.modals.producto-estado-modal')
     @livewire('producto.modals.producto-fotos-modal')
     @livewire('producto.modals.producto-compra-modal')
+    @livewire('producto.modals.producto-resumen-modal')
     @livewire('cliente.modals.cliente-selector-modal')
 @livewire('cliente.modals.cliente-create-modal')
     @livewire('compra-lote.modals.compra-lote-producto-edit-modal')
