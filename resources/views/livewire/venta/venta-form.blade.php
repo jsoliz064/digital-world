@@ -93,7 +93,7 @@
                             {!! \App\Enums\LineaTipo::badge($linea['tipo']) !!}
                             <span class="text-gray-900 dark:text-gray-100">{{ $linea['descripcion'] }}</span>
                             @if ($linea['codigo'])
-                                <span class="block text-xs text-gray-500 font-mono">{{ $esEquipo ? 'IMEI ' : 'SKU ' }}{{ $linea['codigo'] }}</span>
+                                <span class="block text-xs text-gray-500 font-mono">{{ $esEquipo ? 'IMEI ' : 'SKU ' }}{{ $linea['codigo'] }}@if ($esEquipo && ($linea['sku'] ?? null)) · SKU {{ $linea['sku'] }}@endif</span>
                             @endif
                             @if (!$esEquipo)
                                 <span class="block text-xs text-gray-500">Stock aquí: {{ $linea['stock'] }}</span>

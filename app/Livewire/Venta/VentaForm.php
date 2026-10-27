@@ -66,8 +66,11 @@ class VentaForm extends Component
     public array $venta = [];
 
     /**
-     * [['tipo','id','descripcion','codigo','cantidad','precio','descuento',
+     * [['tipo','id','descripcion','codigo','sku','cantidad','precio','descuento',
      *   'garantia_meses','stock','repuestos_elegibles'], ...]
+     *
+     * `codigo` es el IMEI del equipo o el SKU del articulo; `sku` es el del
+     * equipo, solo para mostrarlo junto al IMEI (no viaja a VentaService).
      */
     public array $lineas = [];
 
@@ -190,6 +193,7 @@ class VentaForm extends Component
                 'id' => (int) $articulo->id,
                 'descripcion' => $d->descripcion(),
                 'codigo' => $d->producto_id ? $articulo->imei : $articulo->sku,
+                'sku' => $d->producto_id ? $articulo->sku : null,
                 'cantidad' => (int) $d->cantidad,
                 'precio' => (float) $d->precio,
                 'descuento' => (float) $d->descuento,
@@ -279,6 +283,7 @@ class VentaForm extends Component
             'id' => $producto->id,
             'descripcion' => trim(($producto->modelo?->nombre ?? 'Equipo') . ' ' . $producto->almacenamiento . ' ' . $producto->color),
             'codigo' => $producto->imei,
+            'sku' => $producto->sku,
             'cantidad' => 1,
             'precio' => (float) ($this->tipo_precio === 'Vendedor' ? $producto->precio_vendedor : $producto->precio_cliente),
             'descuento' => 0,
