@@ -6,13 +6,8 @@
     <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-2xl">
         <div>
             <x-label for="inventarioModeloId" value="Modelo" />
-            <select wire:model.live="modeloId" id="inventarioModeloId"
-                class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200">
-                <option value="">Todos</option>
-                @foreach ($modelos as $modelo)
-                    <option value="{{ $modelo->id }}">{{ $modelo->nombre }}</option>
-                @endforeach
-            </select>
+            <x-select-buscador wire:model.live="modeloId" id="inventarioModeloId"
+                :options="$modelos->pluck('nombre', 'id')" placeholder="Todos" />
         </div>
         <div>
             <x-label for="inventarioSucursalId" value="Sucursal" />
