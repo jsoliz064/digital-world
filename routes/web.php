@@ -271,3 +271,11 @@ Route::get('productos/fotos/{imagen}', \App\Http\Controllers\ProductoFotoControl
 
 // Los terminos de garantia, publicos: a esta pagina lleva el QR de la nota.
 Route::view('garantia', 'garantia')->name('garantia');
+
+// El token CSRF de la sesion vigente, para el login: se pide justo antes de
+// enviarlo. Un login abierto desde antes de que venciera la sesion (o devuelto
+// por el boton atras) llevaba el token de una sesion que ya no existe y daba
+// 419 hasta recargar la pagina a mano. Si la sesion vencio, el middleware web
+// arranca otra y manda su cookie con esta misma respuesta.
+Route::get('csrf-token', fn() => response()->json(['token' => csrf_token()])->header('Cache-Control', 'no-store'))
+    ->name('csrf-token');

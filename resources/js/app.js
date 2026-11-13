@@ -1,5 +1,20 @@
 import './bootstrap';
 
+// Sesion vencida con una pantalla abierta: Livewire responde 419 y por defecto
+// pregunta en ingles "This page has expired..." antes de recargar. Se recarga
+// directo: el middleware auth lleva a un login recien cargado, con token
+// valido (un login viejo es lo que daba 419 al volver a entrar).
+document.addEventListener('livewire:init', () => {
+    window.Livewire.hook('request', ({ fail }) => {
+        fail(({ status, preventDefault }) => {
+            if (status === 419) {
+                preventDefault();
+                window.location.reload();
+            }
+        });
+    });
+});
+
 // El lector de codigos por camara (components/escaner-overlay). Hay uno solo,
 // en el layout, y cualquier campo lo abre con:
 //

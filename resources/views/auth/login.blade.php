@@ -235,7 +235,7 @@
                     </div>
                 @endif
 
-                <form method="POST" action="{{ route('login') }}">
+                <form id="login-form" method="POST" action="{{ route('login') }}">
                     @csrf
 
                     <div class="relative">
@@ -272,13 +272,67 @@
     </div>
     @livewireScripts
     <script>
+        // Un login viejo daba 419: el que devuelve el boton atras, una pestana
+        // restaurada o el que quedo abierto mientras vencia la sesion llevan el
+        // token CSRF de una sesion que ya no existe, y solo un F5 lo arreglaba.
+        // Tres defensas: recargar el que vuelve de la memoria del navegador,
+        // recargar el que lleva rato abierto al volver a la pestana (si aun no se
+        // escribio la contrasena) y, al enviar, pedir el token vigente.
+        const loginCargadoEn = Date.now();
+        const LOGIN_VIEJO_MS = 10 * 60 * 1000;
+
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted) window.location.reload();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            const password = document.getElementById('password');
+            if (!document.hidden && Date.now() - loginCargadoEn > LOGIN_VIEJO_MS && !password?.value) {
+                window.location.reload();
+            }
+        });
+
+        /** Envia el formulario con el token de la sesion vigente. Sin senal, con el que tenia. */
+        async function enviarConTokenVigente(form) {
+            if (form.dataset.enviando) return;
+            form.dataset.enviando = '1';
+            try {
+                const corte = new AbortController();
+                setTimeout(() => corte.abort(), 5000);
+                const r = await fetch(@js(route('csrf-token', [], false)), {
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                    headers: { Accept: 'application/json' },
+                    signal: corte.signal,
+                });
+                if (r.ok) {
+                    const { token } = await r.json();
+                    if (token) form.querySelector('input[name="_token"]').value = token;
+                }
+            } catch (e) {}
+            HTMLFormElement.prototype.submit.call(form);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('login-form');
+
+            // Enter en un campo (si el navegador no lo convierte en un clic del boton).
+            loginForm?.addEventListener('submit', (e) => {
+                e.preventDefault();
+                enviarConTokenVigente(loginForm);
+            });
+
             // Ripple effect for login button
             const loginBtn = document.querySelector('.btn-morph');
 
             if (loginBtn) {
                 loginBtn.addEventListener('click', function(e) {
                     e.preventDefault();
+
+                    // form.submit() se salta el `required`: sin esto un login
+                    // vacio iba al servidor.
+                    const form = this.closest('form');
+                    if (!form.reportValidity()) return;
 
                     const ripple = document.createElement('span');
                     ripple.classList.add('ripple');
@@ -293,7 +347,7 @@
 
                     setTimeout(() => {
                         ripple.remove();
-                        this.closest('form').submit();
+                        enviarConTokenVigente(form);
                     }, 600);
                 });
             }
